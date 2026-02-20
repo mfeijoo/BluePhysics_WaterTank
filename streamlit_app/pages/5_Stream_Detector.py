@@ -14,7 +14,6 @@ with c1:
         st.session_state.samples = []
         mgr.integ_us = None
         mgr.total_end = None
-        mgr.send_cmd("tb")
         mgr.send_cmd("rs")
         st.success("Streaming started")
 with c2:
