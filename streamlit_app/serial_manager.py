@@ -2,7 +2,13 @@
 import time, threading, queue, struct
 import serial
 import serial.tools.list_ports
-from protocol import parse_stream_samples_from_buffer, try_parse_stream_start, try_parse_stream_end, try_parse_measure_packet
+from protocol import (
+    parse_stream_samples_from_buffer,
+    try_parse_stream_start,
+    try_parse_stream_end,
+    try_parse_measure_packet,
+    try_parse_move_measure_packet,
+)
 
 def list_ports():
     return list(serial.tools.list_ports.comports())
@@ -156,6 +162,54 @@ class SerialManager:
                 time.sleep(0.005)
 
             return {"ok": False, "error": "Timeout waiting for binary measurement packet."}
+        finally:
+            self.start_rx_thread()
+
+
+    def move_and_measure_binary(self, x_mm: float, y_mm: float, z_mm: float, samples_count: int, timeout_s: float = 60.0):
+        """
+        Run move+measure using Qx,y,z,N; and parse the ADEF binary packet.
+        Returns dict with packet data or error.
+        """
+        if not self.is_connected():
+            return {"ok": False, "error": "Not connected."}
+
+        n = int(samples_count)
+        if n < 1:
+            n = 1
+        if n > 30000:
+            n = 30000
+
+        self.stop_rx_thread()
+        try:
+            with self.lock:
+                self.ser.reset_input_buffer()
+                self.ser.reset_output_buffer()
+                self.ser.write(f"Q{x_mm},{y_mm},{z_mm},{n};".encode("ascii"))
+                self.ser.flush()
+
+            buf = bytearray()
+            t0 = time.time()
+            while time.time() - t0 < timeout_s:
+                with self.lock:
+                    waiting = self.ser.in_waiting
+                    if waiting:
+                        buf += self.ser.read(waiting)
+
+                packet, buf = try_parse_move_measure_packet(buf)
+                if packet is not None:
+                    return {
+                        "ok": True,
+                        "samples_count": packet.total_samples,
+                        "integration_us": packet.integration_us,
+                        "x_end": packet.x_end,
+                        "y_end": packet.y_end,
+                        "z_end": packet.z_end,
+                        "samples": packet.samples,
+                    }
+                time.sleep(0.005)
+
+            return {"ok": False, "error": "Timeout waiting for binary move+measure packet."}
         finally:
             self.start_rx_thread()
 
