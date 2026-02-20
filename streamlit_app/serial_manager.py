@@ -2,7 +2,7 @@
 import time, threading, queue, struct
 import serial
 import serial.tools.list_ports
-from protocol import parse_stream_samples_from_buffer, try_parse_stream_start, try_parse_stream_end
+from protocol import parse_stream_samples_from_buffer, try_parse_stream_start, try_parse_stream_end, try_parse_measure_packet
 
 def list_ports():
     return list(serial.tools.list_ports.comports())
@@ -147,6 +147,58 @@ class SerialManager:
                 time.sleep(0.01)
 
             return {"ok": False, "error": "Timeout waiting for coords reply."}
+        finally:
+            self.start_rx_thread()
+
+    def measure_binary(self, samples_count: int, integration_us: int, timeout_s: float = 30.0):
+        """
+        Run detector measurement in binary mode using:
+          tb; i<integration_us>; m<samples_count>;
+        Returns dict with packet data or error.
+        """
+        if not self.is_connected():
+            return {"ok": False, "error": "Not connected."}
+
+        n = int(samples_count)
+        integ = int(integration_us)
+        if n < 1:
+            n = 1
+        if n > 30000:
+            n = 30000
+        if integ < 50:
+            integ = 50
+        if integ > 50000:
+            integ = 50000
+
+        self.stop_rx_thread()
+        try:
+            with self.lock:
+                self.ser.reset_input_buffer()
+                self.ser.reset_output_buffer()
+                self.ser.write(b"tb;")
+                self.ser.write(f"i{integ};".encode("ascii"))
+                self.ser.write(f"m{n};".encode("ascii"))
+                self.ser.flush()
+
+            buf = bytearray()
+            t0 = time.time()
+            while time.time() - t0 < timeout_s:
+                with self.lock:
+                    waiting = self.ser.in_waiting
+                    if waiting:
+                        buf += self.ser.read(waiting)
+
+                packet, buf = try_parse_measure_packet(buf)
+                if packet is not None:
+                    return {
+                        "ok": True,
+                        "samples_count": packet.total_samples,
+                        "integration_us": packet.integration_us,
+                        "samples": packet.samples,
+                    }
+                time.sleep(0.005)
+
+            return {"ok": False, "error": "Timeout waiting for binary measurement packet."}
         finally:
             self.start_rx_thread()
 
