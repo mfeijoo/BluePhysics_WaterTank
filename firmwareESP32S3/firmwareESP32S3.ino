@@ -513,10 +513,6 @@ static void detMeasureAndSendBinary(uint32_t N) {
   if (N == 0) N = 1;
   if (N > MEAS_MAX_SAMPLES) N = MEAS_MAX_SAMPLES;
 
-  Serial.print("MEAS samples: ");
-  Serial.print(N);
-  Serial.print("  integ_us: ");
-  Serial.println((uint32_t)integraltimemicros);
 
   uint32_t t0 = micros();
 
@@ -537,8 +533,6 @@ static void detMeasureAndSendBinary(uint32_t N) {
     measBuf[i].ch1   = det_ch1;
   }
 
-  Serial.print("BIN MEAS N="); Serial.print(N);
-  Serial.print(" integ_us="); Serial.println((uint32_t)integraltimemicros);
   Serial.flush();   // ensure the line is out before raw bytes
 
 
@@ -785,6 +779,7 @@ void loop() {
   // Move to absolute mm:  Mx,y,z;
   //============================================================
   if (cmd[0] == 'M') {
+    sendAck('M');
     double tx_mm, ty_mm, tz_mm;
     if (!parse3DoublesComma(cmd + 1, tx_mm, ty_mm, tz_mm)) {
       Serial.println("ERR M format. Use: Mx,y,z;");
@@ -823,8 +818,7 @@ void loop() {
 
     if (sz != 0) moveAxisSteps('z', sz);
 
-    Serial.println("Done");
-    printCoordsMM();
+    sendCoordsPacket(0x21);
     return;
   }
 
@@ -833,9 +827,9 @@ void loop() {
   // Example: S10,25.5,-3;
   //============================================================
   if (cmd[0] == 'S') {
+    sendAck('S');
     double tx_mm, ty_mm, tz_mm;
     if (!parse3DoublesComma(cmd + 1, tx_mm, ty_mm, tz_mm)) {
-      Serial.println("ERR S format. Use: Sx,y,z;");
       return;
     }
 
@@ -855,10 +849,6 @@ void loop() {
     int32_t sy = deltaCountsToSteps(dy);
     int32_t sz = deltaCountsToSteps(dz);
 
-    Serial.print("MOV S (sync) to mm: ");
-    Serial.print(tx_mm, 3); Serial.print(", ");
-    Serial.print(ty_mm, 3); Serial.print(", ");
-    Serial.println(tz_mm, 3);
 
     // For Z offset correction:
     // raw Z will change due to (1) coupled Y steps AND (2) independent Z steps.
@@ -879,8 +869,7 @@ void loop() {
     // Remove that from logical Z
     z_offset -= caused_by_Y;
 
-    Serial.println("Done");
-    printCoordsMM();
+    sendCoordsPacket(0x21);
     return;
   }
 
@@ -894,7 +883,6 @@ void loop() {
     uint32_t N = MEAS_DEFAULT_SAMPLES;
 
     if (!parse3DoublesAndU32Comma(cmd + 1, tx_mm, ty_mm, tz_mm, N)) {
-      Serial.println("ERR Q format. Use: Qx,y,z,N;");
       return;
     }
 
@@ -915,11 +903,7 @@ void loop() {
     int32_t sy = deltaCountsToSteps(dy);
     int32_t sz = deltaCountsToSteps(dz);
 
-    Serial.print("MOV+MEAS Q to mm: ");
-    Serial.print(tx_mm, 3); Serial.print(", ");
-    Serial.print(ty_mm, 3); Serial.print(", ");
-    Serial.print(tz_mm, 3); Serial.print("  N=");
-    Serial.println(N);
+    
 
     if (sx != 0) moveAxisSteps('x', sx);
 
@@ -975,5 +959,4 @@ void loop() {
     return;
   }
 
-    Serial.println("ERR");
 }
