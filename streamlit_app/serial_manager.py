@@ -1,5 +1,5 @@
 # serial_manager.py
-import time, threading, queue
+import time, threading, queue, struct
 import serial
 import serial.tools.list_ports
 from protocol import parse_stream_samples_from_buffer, try_parse_stream_start, try_parse_stream_end
@@ -85,36 +85,70 @@ class SerialManager:
 
     def get_coords_mm_text(self):
         """
-        Safely fetch coords using TEXT mode:
-          th; then P; read line containing 'Z mm:' then back to tb;
+        Fetch coords from firmware command P;.
+        New firmware sends a binary packet (AA 55 20 ...), while older
+        firmware may still send a text line with "Z mm:".
         Must NOT be called while streaming.
         """
         if self.streaming_active:
             return {"ok": False, "error": "Stop streaming first."}
-
-        self.send_cmd("th")
-        self.read_until_contains("OK det_out=", timeout_s=2.0)
-
-        self.send_cmd("P")
-        lines = self.read_until_contains("Z mm:", timeout_s=3.0)
-        line = ""
-        for l in reversed(lines):
-            if "Z mm:" in l:
-                line = l
-                break
-
-        self.send_cmd("tb")
-        self.read_until_contains("OK det_out=", timeout_s=2.0)
-
-        # parse floats if possible
-        x = y = z = None
+        self.stop_rx_thread()
         try:
-            parts = line.replace(",", "").split()
-            x = float(parts[2]); y = float(parts[5]); z = float(parts[8])
-        except Exception:
-            pass
+            if not self.is_connected():
+                return {"ok": False, "error": "Not connected."}
 
-        return {"ok": bool(line), "line": line, "x": x, "y": y, "z": z}
+            with self.lock:
+                self.ser.reset_input_buffer()
+                self.ser.reset_output_buffer()
+                self.ser.write(b"P;")
+                self.ser.flush()
+
+            t0 = time.time()
+            buf = bytearray()
+
+            while time.time() - t0 < 3.0:
+                with self.lock:
+                    n = self.ser.in_waiting
+                    if n:
+                        buf += self.ser.read(n)
+
+                # Binary coords packet: AA 55 20 + payload(24 bytes)
+                j = buf.find(b"\xAA\x55\x20")
+                if j >= 0 and len(buf) >= j + 27:
+                    x_cnt, y_cnt, z_cnt, x, y, z = struct.unpack_from("<iiifff", buf, j + 3)
+                    line = f"X mm: {x:.3f}, Y mm: {y:.3f}, Z mm: {z:.3f}"
+                    return {
+                        "ok": True,
+                        "line": line,
+                        "x": float(x),
+                        "y": float(y),
+                        "z": float(z),
+                        "x_cnt": int(x_cnt),
+                        "y_cnt": int(y_cnt),
+                        "z_cnt": int(z_cnt),
+                    }
+
+                # Legacy text fallback
+                try:
+                    text = buf.decode("utf-8", errors="ignore")
+                    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+                    for l in reversed(lines):
+                        if "Z mm:" in l:
+                            x = y = z = None
+                            try:
+                                parts = l.replace(",", "").split()
+                                x = float(parts[2]); y = float(parts[5]); z = float(parts[8])
+                            except Exception:
+                                pass
+                            return {"ok": True, "line": l, "x": x, "y": y, "z": z}
+                except Exception:
+                    pass
+
+                time.sleep(0.01)
+
+            return {"ok": False, "error": "Timeout waiting for coords reply."}
+        finally:
+            self.start_rx_thread()
 
     def start_rx_thread(self):
         if self.rx_thread and self.rx_thread.is_alive():
