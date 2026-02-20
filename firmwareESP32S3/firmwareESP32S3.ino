@@ -3,7 +3,6 @@
 #include "driver/pcnt.h"
 #include <math.h>
 #include <SPI.h>
-#include "esp_heap_caps.h"
 
 // =================== STEPPER PINS ===================
 static const int X_STEP = 19;
@@ -291,22 +290,6 @@ static double xMM() { return (double)pcntRead32(pcX) * X_MM_PER_COUNT; }
 static double yMM() { return (double)pcntRead32(pcY) * Y_MM_PER_COUNT; }
 static double zMM() { return (double)zCoord()         * Z_MM_PER_COUNT; } // logical Z
 
-static void printCoords() {
-  int32_t x = pcntRead32(pcX);
-  int32_t y = pcntRead32(pcY);
-  int32_t z = zCoord();
-
-  Serial.print("X coord: "); Serial.print(x);
-  Serial.print(", Y coord: "); Serial.print(y);
-  Serial.print(", Z coord: "); Serial.println(z);
-}
-
-static void printCoordsMM() {
-  Serial.print("X mm: "); Serial.print(xMM(), 3);
-  Serial.print(", Y mm: "); Serial.print(yMM(), 3);
-  Serial.print(", Z mm: "); Serial.println(zMM(), 3);
-}
-
 static int32_t llround_i32(double v) { return (int32_t)llround(v); }
 static int32_t mmToTargetCountsX(double mm) { return llround_i32(mm / X_MM_PER_COUNT); }
 static int32_t mmToTargetCountsY(double mm) { return llround_i32(mm / Y_MM_PER_COUNT); }
@@ -412,13 +395,6 @@ static void sendCoordsPacket(uint8_t type) {
   Serial.write((uint8_t*)&zm, 4);
 }
 
-//===========================================================
-// Detector Settings
-//===========================================================
-enum DetOutMode : uint8_t { DET_OUT_TEXT = 0, DET_OUT_BINARY = 1 };
-static volatile DetOutMode detOutMode = DET_OUT_TEXT;  // default = text
-
-
 //============================================================
 // DETECTOR: SPI read (based on your old model10board approach)
 //============================================================
@@ -462,53 +438,6 @@ static void detReadOnce() {
   digitalWrite(HOLD_PIN, LOW);
 }
 
-// Measure N samples, store them, then PRINT human-readable lines
-static void detMeasureAndPrint(uint32_t N) {
-  if (N == 0) N = 1;
-  if (N > MEAS_MAX_SAMPLES) N = MEAS_MAX_SAMPLES;
-
-  Serial.println("MEAS BEGIN");
-  Serial.print("samples=");   Serial.println(N);
-  Serial.print("integ_us=");  Serial.println((uint32_t)integraltimemicros);
-
-  // Ensure we start in a known state
-  digitalWrite(RST_PIN, HIGH);
-  digitalWrite(HOLD_PIN, LOW);
-
-  uint32_t t0 = micros();
-
-  // First cycle to start integration cleanly
-  detReadOnce();
-  uint32_t last = micros();
-
-  for (uint32_t i = 0; i < N; i++) {
-    while ((uint32_t)(micros() - last) < (uint32_t)integraltimemicros) { /* busy wait */ }
-
-    detReadOnce();
-    last = micros();
-
-    measBuf[i].dt_us = (uint32_t)(last - t0);
-    measBuf[i].ch0   = det_ch0;
-    measBuf[i].ch1   = det_ch1;
-  }
-
-  // Print header (CSV-like)
-  Serial.println("S,idx,dt_us,ch0,ch1");
-
-  for (uint32_t i = 0; i < N; i++) {
-    Serial.print("S,");
-    Serial.print(i);
-    Serial.print(",");
-    Serial.print(measBuf[i].dt_us);
-    Serial.print(",");
-    Serial.print(measBuf[i].ch0);
-    Serial.print(",");
-    Serial.println(measBuf[i].ch1);
-  }
-
-  Serial.println("MEAS END");
-}
-
 static void detMeasureAndSendBinary(uint32_t N) {
   if (N == 0) N = 1;
   if (N > MEAS_MAX_SAMPLES) N = MEAS_MAX_SAMPLES;
@@ -550,56 +479,7 @@ static void detMeasureAndSendBinary(uint32_t N) {
 }
 
 static void detMeasure(uint32_t N) {
-  if (detOutMode == DET_OUT_BINARY) detMeasureAndSendBinary(N);
-  else                             detMeasureAndPrint(N);
-}
-
-static void detMeasureAndPrintWithCoords(uint32_t N, int32_t x_end, int32_t y_end, int32_t z_end) {
-  if (N == 0) N = 1;
-  if (N > MEAS_MAX_SAMPLES) N = MEAS_MAX_SAMPLES;
-
-  Serial.println("MEASMOVE BEGIN");
-  Serial.print("end_counts="); Serial.print(x_end); Serial.print(","); Serial.print(y_end); Serial.print(","); Serial.println(z_end);
-  Serial.print("end_mm="); Serial.print((double)x_end * X_MM_PER_COUNT, 3);
-  Serial.print(",");       Serial.print((double)y_end * Y_MM_PER_COUNT, 3);
-  Serial.print(",");       Serial.println((double)z_end * Z_MM_PER_COUNT, 3);
-
-  Serial.print("samples=");  Serial.println(N);
-  Serial.print("integ_us="); Serial.println((uint32_t)integraltimemicros);
-
-  // Acquire into buffer (same logic as your current measurement)
-  digitalWrite(RST_PIN, HIGH);
-  digitalWrite(HOLD_PIN, LOW);
-
-  uint32_t t0 = micros();
-
-  detReadOnce();
-  uint32_t last = micros();
-
-  for (uint32_t i = 0; i < N; i++) {
-    while ((uint32_t)(micros() - last) < (uint32_t)integraltimemicros) { /* busy wait */ }
-
-    detReadOnce();
-    last = micros();
-
-    measBuf[i].dt_us = (uint32_t)(last - t0);
-    measBuf[i].ch0   = det_ch0;
-    measBuf[i].ch1   = det_ch1;
-  }
-
-  Serial.println("S,idx,dt_us,ch0,ch1");
-  for (uint32_t i = 0; i < N; i++) {
-    Serial.print("S,");
-    Serial.print(i);
-    Serial.print(",");
-    Serial.print(measBuf[i].dt_us);
-    Serial.print(",");
-    Serial.print(measBuf[i].ch0);
-    Serial.print(",");
-    Serial.println(measBuf[i].ch1);
-  }
-
-  Serial.println("MEASMOVE END");
+  detMeasureAndSendBinary(N);
 }
 
 static void detMeasureAndSendBinaryWithCoords(uint32_t N, int32_t x_end, int32_t y_end, int32_t z_end) {
@@ -643,25 +523,9 @@ static void detMeasureAndSendBinaryWithCoords(uint32_t N, int32_t x_end, int32_t
 }
 
 static void detMeasureWithCoords(uint32_t N, int32_t x_end, int32_t y_end, int32_t z_end) {
-  if (detOutMode == DET_OUT_BINARY) detMeasureAndSendBinaryWithCoords(N, x_end, y_end, z_end);
-  else                             detMeasureAndPrintWithCoords(N, x_end, y_end, z_end);
+  detMeasureAndSendBinaryWithCoords(N, x_end, y_end, z_end);
 }
 
-
-//============================================================
-// Check Memory available
-//===========================================================
-static void printMem() {
-  Serial.print("heap free = "); Serial.println(ESP.getFreeHeap());
-  Serial.print("heap size = "); Serial.println(ESP.getHeapSize());
-  Serial.print("min free heap ever = "); Serial.println(ESP.getMinFreeHeap());
-
-  Serial.print("largest alloc block = ");
-  Serial.println(heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
-
-  Serial.print("psram size = "); Serial.println(ESP.getPsramSize());
-  Serial.print("psram free = "); Serial.println(ESP.getFreePsram());
-}
 
 //============================================================
 // Arduino setup/loop
@@ -696,9 +560,6 @@ void setup() {
   // SPI
   SPI.begin(DET_SCK, DET_MISO, DET_MOSI);
 
-  //pirnt memory
-  //printMem();
-
 }
 
 
@@ -720,9 +581,10 @@ void loop() {
   return;
 }
 
-  //-----print coords in counts
+  //-----coords packet
   if (cmd[0] == 'p' && cmd[1] == 0) {
-    printCoords();
+    sendAck('p');
+    sendCoordsPacket(0x20);
     return;
   }
 
@@ -745,22 +607,7 @@ void loop() {
     if (v < 50) v = 50;          // simple guard
     if (v > 50000) v = 50000;    // simple guard
     integraltimemicros = v;
-    Serial.print("OK integ_us=");
-    Serial.println((uint32_t)integraltimemicros);
-    return;
-  }
-
-  //-----detector output mode: th; (text)
-  if (strcmp(cmd, "th") == 0) {
-    detOutMode = DET_OUT_TEXT;
-    Serial.println("OK det_out=TEXT");
-    return;
-  }
-
-  //-----detector output mode: tb; (binary)
-  if (strcmp(cmd, "tb") == 0) {
-    detOutMode = DET_OUT_BINARY;
-    Serial.println("OK det_out=BINARY");
+    sendAck('i');
     return;
   }
 
@@ -782,7 +629,7 @@ void loop() {
     sendAck('M');
     double tx_mm, ty_mm, tz_mm;
     if (!parse3DoublesComma(cmd + 1, tx_mm, ty_mm, tz_mm)) {
-      Serial.println("ERR M format. Use: Mx,y,z;");
+      sendErr('M', 0x01);
       return;
     }
 
@@ -801,11 +648,6 @@ void loop() {
     int32_t sx = deltaCountsToSteps(dx);
     int32_t sy = deltaCountsToSteps(dy);
     int32_t sz = deltaCountsToSteps(dz);
-
-    Serial.print("MOV M to mm: ");
-    Serial.print(tx_mm, 3); Serial.print(", ");
-    Serial.print(ty_mm, 3); Serial.print(", ");
-    Serial.println(tz_mm, 3);
 
     if (sx != 0) moveAxisSteps('x', sx);
 

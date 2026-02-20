@@ -59,35 +59,10 @@ class SerialManager:
             self.ser.write(cmd.encode("ascii"))
             self.ser.flush()
 
-    def read_line(self, timeout_s=2.0) -> str:
-        """Fast readline for TEXT replies (only use when NOT streaming)."""
-        if not self.is_connected():
-            return ""
-        t0 = time.time()
-        while time.time() - t0 < timeout_s:
-            with self.lock:
-                line = self.ser.readline()
-            if line:
-                return line.decode("utf-8", errors="replace").strip()
-            time.sleep(0.01)
-        return ""
-
-    def read_until_contains(self, needle: str, timeout_s=3.0):
-        out = []
-        t0 = time.time()
-        while time.time() - t0 < timeout_s:
-            s = self.read_line(timeout_s=timeout_s)
-            if s:
-                out.append(s)
-                if needle in s:
-                    break
-        return out
-
-    def get_coords_mm_text(self):
+    def get_coords_packet(self):
         """
-        Fetch coords from firmware command P;.
-        New firmware sends a binary packet (AA 55 20 ...), while older
-        firmware may still send a text line with "Z mm:".
+        Fetch coords from firmware command P; as binary packet:
+          AA 55 20 + i32 x + i32 y + i32 z + f32 x_mm + f32 y_mm + f32 z_mm
         Must NOT be called while streaming.
         """
         if self.streaming_active:
@@ -116,10 +91,9 @@ class SerialManager:
                 j = buf.find(b"\xAA\x55\x20")
                 if j >= 0 and len(buf) >= j + 27:
                     x_cnt, y_cnt, z_cnt, x, y, z = struct.unpack_from("<iiifff", buf, j + 3)
-                    line = f"X mm: {x:.3f}, Y mm: {y:.3f}, Z mm: {z:.3f}"
                     return {
                         "ok": True,
-                        "line": line,
+                        "line": f"X mm: {x:.3f}, Y mm: {y:.3f}, Z mm: {z:.3f}",
                         "x": float(x),
                         "y": float(y),
                         "z": float(z),
@@ -127,22 +101,6 @@ class SerialManager:
                         "y_cnt": int(y_cnt),
                         "z_cnt": int(z_cnt),
                     }
-
-                # Legacy text fallback
-                try:
-                    text = buf.decode("utf-8", errors="ignore")
-                    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
-                    for l in reversed(lines):
-                        if "Z mm:" in l:
-                            x = y = z = None
-                            try:
-                                parts = l.replace(",", "").split()
-                                x = float(parts[2]); y = float(parts[5]); z = float(parts[8])
-                            except Exception:
-                                pass
-                            return {"ok": True, "line": l, "x": x, "y": y, "z": z}
-                except Exception:
-                    pass
 
                 time.sleep(0.01)
 
@@ -153,7 +111,7 @@ class SerialManager:
     def measure_binary(self, samples_count: int, integration_us: int, timeout_s: float = 30.0):
         """
         Run detector measurement in binary mode using:
-          tb; i<integration_us>; m<samples_count>;
+          i<integration_us>; m<samples_count>;
         Returns dict with packet data or error.
         """
         if not self.is_connected():
@@ -175,7 +133,6 @@ class SerialManager:
             with self.lock:
                 self.ser.reset_input_buffer()
                 self.ser.reset_output_buffer()
-                self.ser.write(b"tb;")
                 self.ser.write(f"i{integ};".encode("ascii"))
                 self.ser.write(f"m{n};".encode("ascii"))
                 self.ser.flush()
