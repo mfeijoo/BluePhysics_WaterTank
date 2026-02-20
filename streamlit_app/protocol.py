@@ -13,6 +13,13 @@ class Sample:
     ch0: int
     ch1: int
 
+
+@dataclass
+class MeasurePacket:
+    total_samples: int
+    integration_us: int
+    samples: list[Sample]
+
 def parse_stream_samples_from_buffer(buf: bytearray):
     """
     A0 02 + u32 idx + u32 dt_us + u16 ch0 + u16 ch1 (14 bytes)
@@ -51,3 +58,37 @@ def try_parse_stream_end(buf: bytearray):
         return None, buf[j:]
     total, = struct.unpack_from("<I", buf, j + 2)
     return total, buf[j + 6:]
+
+
+def try_parse_measure_packet(buf: bytearray):
+    """
+    AB CD + u32 total_samples + u32 integration_us + N * (u32 dt_us + u16 ch0 + u16 ch1)
+    Returns (MeasurePacket|None, remaining_buf)
+    """
+    j = buf.find(b"\xAB\xCD")
+    if j < 0:
+        return None, (buf[-1:] if len(buf) else bytearray())
+
+    if len(buf) < j + 10:
+        return None, buf[j:]
+
+    total_samples, integration_us = struct.unpack_from("<II", buf, j + 2)
+    payload_len = total_samples * 8
+    total_len = 2 + 8 + payload_len
+
+    if len(buf) < j + total_len:
+        return None, buf[j:]
+
+    samples = []
+    p = j + 10
+    for idx in range(total_samples):
+        dt_us, ch0, ch1 = struct.unpack_from("<IHH", buf, p)
+        samples.append(Sample(idx=idx, dt_us=dt_us, ch0=ch0, ch1=ch1))
+        p += 8
+
+    packet = MeasurePacket(
+        total_samples=total_samples,
+        integration_us=integration_us,
+        samples=samples,
+    )
+    return packet, buf[j + total_len:]
