@@ -6,6 +6,21 @@ def counts_to_volts(counts: int) -> float:
     # model11.ino mapping
     return - (float(counts) * 24.0 / 65535.0) + 12.0
 
+
+def counts_to_mm_x(counts: int) -> float:
+    # Keep conversion aligned with firmware constants (X_MM_PER_REV=1.0, ENC_COUNTS_PER_REV=2000.0)
+    return float(counts) * (1.0 / 2000.0)
+
+
+def counts_to_mm_y(counts: int) -> float:
+    # Keep conversion aligned with firmware constants (wheel_diameter=12 mm, ENC_COUNTS_PER_REV=2000.0)
+    return float(counts) * ((12.0 * 3.141592653589793) / 2000.0)
+
+
+def counts_to_mm_z(counts: int) -> float:
+    # Keep conversion aligned with firmware constants (wheel_diameter=12 mm, ENC_COUNTS_PER_REV=2000.0)
+    return float(counts) * ((12.0 * 3.141592653589793) / 2000.0)
+
 @dataclass
 class Sample:
     idx: int

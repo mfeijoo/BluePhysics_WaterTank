@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
-from protocol import counts_to_volts
+
+from protocol import counts_to_volts, counts_to_mm_x, counts_to_mm_y, counts_to_mm_z
+
 
 mgr = st.session_state.mgr
 st.title("4) Move and Measure at End (Qx,y,z,N)")
