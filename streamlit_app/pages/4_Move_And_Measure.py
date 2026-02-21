@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
+
 from protocol import counts_to_volts, counts_to_mm_x, counts_to_mm_y, counts_to_mm_z
+
 
 mgr = st.session_state.mgr
 st.title("4) Move and Measure at End (Qx,y,z,N)")
@@ -26,18 +28,11 @@ if "move_measure_result" in st.session_state:
         st.success("Binary move+measure packet received.")
         st.caption(f"Total samples: {result['samples_count']} | Integration: {result['integration_us']} us")
 
-        x_end_mm = counts_to_mm_x(result["x_end"])
-        y_end_mm = counts_to_mm_y(result["y_end"])
-        z_end_mm = counts_to_mm_z(result["z_end"])
-
         st.subheader("Final coordinates after movement")
         st.json({
             "x_end_counts": result["x_end"],
             "y_end_counts": result["y_end"],
             "z_end_counts": result["z_end"],
-            "x_end_mm": x_end_mm,
-            "y_end_mm": y_end_mm,
-            "z_end_mm": z_end_mm,
         })
 
         rows = [
@@ -48,9 +43,6 @@ if "move_measure_result" in st.session_state:
                 "ch1_counts": s.ch1,
                 "ch0_V": counts_to_volts(s.ch0),
                 "ch1_V": counts_to_volts(s.ch1),
-                "x_end_mm": x_end_mm,
-                "y_end_mm": y_end_mm,
-                "z_end_mm": z_end_mm,
             }
             for s in samples
         ]
