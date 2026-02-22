@@ -1,5 +1,5 @@
 # serial_manager.py
-import time, threading, queue, struct
+import time, threading, queue, struct, traceback
 import serial
 import serial.tools.list_ports
 from protocol import (
@@ -79,6 +79,7 @@ class SerialManager:
             self.ser.reset_output_buffer()
             self.ser.write(b"k;")
             self.ser.flush()
+        print("[SerialManager] Sent start command k;")
         return {"ok": True}
 
     def stop_l_stream(self):
@@ -87,6 +88,7 @@ class SerialManager:
         with self.lock:
             self.ser.write(b"l")
             self.ser.flush()
+        print("[SerialManager] Sent stop command l")
         return {"ok": True}
 
     def get_coords_packet(self):
@@ -258,24 +260,31 @@ class SerialManager:
                 with self.lock:
                     n = self.ser.in_waiting
                     if n:
-                        self.raw_buf += self.ser.read(n)
+                        data = self.ser.read(n)
+                        self.raw_buf += data
 
                 if self.raw_buf:
                     integ, self.raw_buf = try_parse_stream_start(self.raw_buf)
                     if integ is not None:
                         self.integ_us = integ
                         self.streaming_active = True
+                        print(f"[SerialManager] Stream START packet received: integ_us={integ}")
 
                     total, self.raw_buf = try_parse_stream_end(self.raw_buf)
                     if total is not None:
                         self.total_end = total
                         self.streaming_active = False
+                        print(f"[SerialManager] Stream END packet received: total={total}, buffered_samples={len(self.stream_session_samples)}")
 
                     samples, self.raw_buf = parse_stream_samples_from_buffer(self.raw_buf)
                     for s in samples:
                         self.stream_session_samples.append(s)
                         self.rx_queue.put(s)
+                    if samples:
+                        print(f"[SerialManager] Parsed {len(samples)} stream sample(s); total_in_memory={len(self.stream_session_samples)}")
                 else:
                     time.sleep(0.005)
-            except Exception:
+            except Exception as e:
+                print(f"[SerialManager] RX loop exception: {e}")
+                traceback.print_exc()
                 time.sleep(0.05)
