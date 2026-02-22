@@ -685,14 +685,12 @@ void loop() {
     if ((micros() - det_stream_last_us) >= integraltimemicros) {
       detReadOnce();
       det_stream_last_us = micros();
+      unsigned long dt_us = micros() - time_start_streaming;
 
-      Serial.print(det_sample_counter);
-      Serial.print(", ");
-      Serial.print(micros() - time_start_streaming);
-      Serial.print(", ");
-      Serial.print(det_ch0);
-      Serial.print(", ");
-      Serial.println(det_ch1);
+      Serial.write((uint8_t*)&det_sample_counter, 4);
+      Serial.write((uint8_t*)&dt_us, 4);
+      Serial.write((uint8_t*)&det_ch0, 2);
+      Serial.write((uint8_t*)&det_ch1, 2);
 
       det_sample_counter++;
     }
