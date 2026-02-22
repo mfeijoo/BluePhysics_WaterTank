@@ -36,6 +36,7 @@ class SerialManager:
         self.integ_us = None
         self.total_end = None
         self.streaming_active = False
+        self.stream_session_samples = []
 
     def is_connected(self) -> bool:
         return self.ser is not None and self.ser.is_open
@@ -55,6 +56,7 @@ class SerialManager:
             except Exception: pass
         self.ser = None
         self.streaming_active = False
+        self.stream_session_samples = []
 
     def send_cmd(self, cmd: str):
         if not self.is_connected():
@@ -64,6 +66,28 @@ class SerialManager:
         with self.lock:
             self.ser.write(cmd.encode("ascii"))
             self.ser.flush()
+
+    def start_k_stream(self):
+        if not self.is_connected():
+            return {"ok": False, "error": "Not connected."}
+        self.integ_us = None
+        self.total_end = None
+        self.stream_session_samples = []
+        self.streaming_active = True
+        with self.lock:
+            self.ser.reset_input_buffer()
+            self.ser.reset_output_buffer()
+            self.ser.write(b"k;")
+            self.ser.flush()
+        return {"ok": True}
+
+    def stop_l_stream(self):
+        if not self.is_connected():
+            return {"ok": False, "error": "Not connected."}
+        with self.lock:
+            self.ser.write(b"l")
+            self.ser.flush()
+        return {"ok": True}
 
     def get_coords_packet(self):
         """
@@ -249,6 +273,7 @@ class SerialManager:
 
                     samples, self.raw_buf = parse_stream_samples_from_buffer(self.raw_buf)
                     for s in samples:
+                        self.stream_session_samples.append(s)
                         self.rx_queue.put(s)
                 else:
                     time.sleep(0.005)
