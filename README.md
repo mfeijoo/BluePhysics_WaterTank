@@ -128,5 +128,4 @@ Then connect from page **1) Connect** and operate through the remaining pages.
 
 ## Tips
 
-1. Under old_firmware_working you will be able to find the old software
-2. That used to work with the detector only and not water tank.
+1. Under old_working_firmware you will be able to find the old software. That used to work with the detector only and not water tank.
