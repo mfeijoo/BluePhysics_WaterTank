@@ -1,5 +1,5 @@
 # serial_manager.py
-import time, threading, queue, struct
+import time, threading, queue, struct, re
 import serial
 import serial.tools.list_ports
 from protocol import (
@@ -65,6 +65,28 @@ class SerialManager:
             self.ser.write(cmd.encode("ascii"))
             self.ser.flush()
 
+    def _parse_coords_line(self, text: str):
+        """Parse human-readable coordinate lines from legacy firmware."""
+        m = re.search(
+            r"X\s*mm\s*[:=]\s*([-+]?\d*\.?\d+)\D+Y\s*mm\s*[:=]\s*([-+]?\d*\.?\d+)\D+Z\s*mm\s*[:=]\s*([-+]?\d*\.?\d+)",
+            text,
+            re.IGNORECASE,
+        )
+        if not m:
+            return None
+
+        x, y, z = map(float, m.groups())
+        return {
+            "ok": True,
+            "line": f"X mm: {x:.3f}, Y mm: {y:.3f}, Z mm: {z:.3f}",
+            "x": x,
+            "y": y,
+            "z": z,
+            "x_cnt": None,
+            "y_cnt": None,
+            "z_cnt": None,
+        }
+
     def get_coords_packet(self):
         """
         Fetch coords from firmware command P; as binary packet:
@@ -87,26 +109,34 @@ class SerialManager:
             t0 = time.time()
             buf = bytearray()
 
-            while time.time() - t0 < 3.0:
+            while time.time() - t0 < 5.0:
                 with self.lock:
                     n = self.ser.in_waiting
                     if n:
                         buf += self.ser.read(n)
 
-                # Binary coords packet: AA 55 20 + payload(24 bytes)
-                j = buf.find(b"\xAA\x55\x20")
-                if j >= 0 and len(buf) >= j + 27:
-                    x_cnt, y_cnt, z_cnt, x, y, z = struct.unpack_from("<iiifff", buf, j + 3)
-                    return {
-                        "ok": True,
-                        "line": f"X mm: {x:.3f}, Y mm: {y:.3f}, Z mm: {z:.3f}",
-                        "x": float(x),
-                        "y": float(y),
-                        "z": float(z),
-                        "x_cnt": int(x_cnt),
-                        "y_cnt": int(y_cnt),
-                        "z_cnt": int(z_cnt),
-                    }
+                # Binary coords packet: AA 55 (20|21|22) + payload(24 bytes)
+                for pkt_type in (b"\x20", b"\x21", b"\x22"):
+                    j = buf.find(b"\xAA\x55" + pkt_type)
+                    if j >= 0 and len(buf) >= j + 27:
+                        x_cnt, y_cnt, z_cnt, x, y, z = struct.unpack_from("<iiifff", buf, j + 3)
+                        return {
+                            "ok": True,
+                            "line": f"X mm: {x:.3f}, Y mm: {y:.3f}, Z mm: {z:.3f}",
+                            "x": float(x),
+                            "y": float(y),
+                            "z": float(z),
+                            "x_cnt": int(x_cnt),
+                            "y_cnt": int(y_cnt),
+                            "z_cnt": int(z_cnt),
+                        }
+
+                # Legacy textual response fallback
+                if b"\n" in buf or b"\r" in buf:
+                    text = buf.decode("utf-8", errors="ignore")
+                    parsed = self._parse_coords_line(text)
+                    if parsed:
+                        return parsed
 
                 time.sleep(0.01)
 
