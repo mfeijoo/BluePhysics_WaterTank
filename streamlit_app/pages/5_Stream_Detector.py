@@ -1,5 +1,7 @@
 import threading
 import time
+from datetime import datetime
+from pathlib import Path
 
 import pandas as pd
 import streamlit as st
@@ -25,6 +27,7 @@ def _init_state():
     ss.setdefault("detector_integration_us", 700)
     ss.setdefault("detector_error", None)
     ss.setdefault("detector_error_ref", None)
+    ss.setdefault("detector_last_csv", None)
 
 
 def _collector_loop(manager, stop_evt, integration_us: int, chunk_samples: int, start_perf: float, buffer_ref: list, error_ref: dict):
@@ -60,6 +63,7 @@ def _start_collection():
     st.session_state.detector_buffer = []
     st.session_state.detector_df = None
     st.session_state.detector_error = None
+    st.session_state.detector_last_csv = None
     st.session_state.detector_start_perf = time.perf_counter()
 
     stop_evt = threading.Event()
@@ -100,6 +104,14 @@ def _stop_collection():
     st.session_state.detector_thread = None
 
     st.session_state.detector_df = pd.DataFrame(st.session_state.detector_buffer)
+
+    if not st.session_state.detector_df.empty:
+        out_dir = Path("streamlit_app/detector_exports")
+        out_dir.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        out_path = out_dir / f"detector_run_{ts}.csv"
+        st.session_state.detector_df.to_csv(out_path, index=False)
+        st.session_state.detector_last_csv = str(out_path)
 
 
 _init_state()
@@ -159,6 +171,9 @@ if buffer_len > 0:
     tail_df = pd.DataFrame(st.session_state.detector_buffer[-10:])
     st.subheader("Last 10 measurement points")
     st.dataframe(tail_df, use_container_width=True, hide_index=True)
+
+if st.session_state.detector_last_csv:
+    st.write(f"Last CSV saved to: {st.session_state.detector_last_csv}")
 
 if st.session_state.detector_df is not None:
     st.subheader("Saved pandas DataFrame (after stop)")
