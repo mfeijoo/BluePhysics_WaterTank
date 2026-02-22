@@ -4,6 +4,11 @@ import time
 import pandas as pd
 import streamlit as st
 
+from serial_manager import SerialManager
+
+if "mgr" not in st.session_state:
+    st.session_state.mgr = SerialManager()
+
 mgr = st.session_state.mgr
 st.title("5) Stream Detector (continuous, no motor movement)")
 
