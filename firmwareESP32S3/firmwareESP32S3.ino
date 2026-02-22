@@ -553,13 +553,15 @@ static void detStreamSendEnd() {
 static void detStreamStart() {
   det_streaming = true;
   det_stream_total = 0;
-  det_stream_start_us = micros();
-  det_stream_last_us = det_stream_start_us;
+  det_sample_counter = 0;
 
+  // Ensure detector starts from known integration state on stream start
   digitalWrite(RST_PIN, HIGH);
   digitalWrite(HOLD_PIN, LOW);
   detReadOnce();
-  det_stream_last_us = micros();
+
+  det_stream_start_us = micros();
+  det_stream_last_us = det_stream_start_us;
 
   detStreamSendStart();
 }
@@ -574,27 +576,26 @@ static void detStreamService() {
   if (!det_streaming) return;
 
   uint32_t now = micros();
-  if ((uint32_t)(now - det_stream_last_us) < (uint32_t)integraltimemicros) {
-    return;
+  while ((uint32_t)(now - det_stream_last_us) >= (uint32_t)integraltimemicros) {
+    detReadOnce();
+    uint32_t t = micros();
+    det_stream_last_us = t;
+
+    uint32_t idx = det_sample_counter++;
+    uint32_t dt_us = (uint32_t)(t - det_stream_start_us);
+    uint16_t ch0 = det_ch0;
+    uint16_t ch1 = det_ch1;
+
+    Serial.write(0xA0);
+    Serial.write(0x02);
+    Serial.write((uint8_t*)&idx, 4);
+    Serial.write((uint8_t*)&dt_us, 4);
+    Serial.write((uint8_t*)&ch0, 2);
+    Serial.write((uint8_t*)&ch1, 2);
+
+    det_stream_total++;
+    now = micros();
   }
-
-  detReadOnce();
-  uint32_t t = micros();
-  det_stream_last_us = t;
-
-  uint32_t idx = det_sample_counter++;
-  uint32_t dt_us = (uint32_t)(t - det_stream_start_us);
-  uint16_t ch0 = det_ch0;
-  uint16_t ch1 = det_ch1;
-
-  Serial.write(0xA0);
-  Serial.write(0x02);
-  Serial.write((uint8_t*)&idx, 4);
-  Serial.write((uint8_t*)&dt_us, 4);
-  Serial.write((uint8_t*)&ch0, 2);
-  Serial.write((uint8_t*)&ch1, 2);
-
-  det_stream_total++;
 }
 
 
