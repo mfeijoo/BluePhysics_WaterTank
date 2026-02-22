@@ -336,6 +336,8 @@ static bool parse3DoublesAndU32Comma(const char *s, double &a, double &b, double
 unsigned long time_start_streaming = 0;
 unsigned long det_stream_last_us = 0;
 unsigned long det_sample_counter = 0;
+static const uint8_t K_STREAM_HDR0 = 0xA5;
+static const uint8_t K_STREAM_HDR1 = 0x5A;
 
 static bool readCmd(char *buf, size_t maxlen) {
   static size_t idx = 0;
@@ -674,7 +676,6 @@ void loop() {
 
   //start streaming
   if (cmd[0] == 'k'){
-    Serial.println("Start Streaming");
     time_start_streaming = micros();
     det_stream_last_us = micros();
     det_sample_counter = 0;
@@ -687,6 +688,8 @@ void loop() {
       det_stream_last_us = micros();
       unsigned long dt_us = micros() - time_start_streaming;
 
+      Serial.write(K_STREAM_HDR0);
+      Serial.write(K_STREAM_HDR1);
       Serial.write((uint8_t*)&det_sample_counter, 4);
       Serial.write((uint8_t*)&dt_us, 4);
       Serial.write((uint8_t*)&det_ch0, 2);
@@ -698,7 +701,6 @@ void loop() {
       char cmd = Serial.read();
       if (cmd == 'l'){
         det_streaming = false;
-        Serial.println("Streaming stopping");
         Serial.flush();
       }
     }
