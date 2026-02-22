@@ -39,23 +39,6 @@ def decode_globalda_packets(buffer, payload_width_bytes=12, header=b"\xA5\x5A"):
     }
 
 
-def validate_packet_sequence(packets, expected_dt_step_us):
-    full_packets = len(packets["counter"])
-    if full_packets <= 1:
-        return 0, 0
-
-    counter_errors = 0
-    dt_errors = 0
-
-    for idx in range(1, full_packets):
-        if packets["counter"][idx] - packets["counter"][idx - 1] != 1:
-            counter_errors += 1
-        if packets["dt_us"][idx] - packets["dt_us"][idx - 1] != expected_dt_step_us:
-            dt_errors += 1
-
-    return counter_errors, dt_errors
-
-
 st.title("7) My Stream Detector (k / l)")
 
 device = list(serial.tools.list_ports.grep("UART"))[0].device
@@ -93,15 +76,12 @@ else:
     st.write(f"Status: Stopped ({len(st.session_state.globalda)} bytes buffered)")
 
     payload_bytes = 12
-    expected_dt_step_us = int(st.number_input("Expected dt_us step", min_value=1, value=750, step=1))
-
     packets, stats = decode_globalda_packets(
         st.session_state.globalda,
         payload_width_bytes=payload_bytes,
         header=b"\xA5\x5A",
     )
 
-    counter_errors, dt_errors = validate_packet_sequence(packets, expected_dt_step_us)
 
     st.write(f"Total bytes received: {stats['total_bytes']}")
     st.write(f"Packet size: {stats['packet_bytes']} bytes (2 header + {stats['payload_bytes']} payload)")
@@ -113,15 +93,3 @@ else:
         st.write("Decoded packet fields (counter, dt_us, ch0, ch1):")
         st.dataframe(packets, use_container_width=True)
 
-        st.write(f"Counter sequence errors (expected +1): {counter_errors}")
-        st.write(f"dt_us step errors (expected +{expected_dt_step_us} us): {dt_errors}")
-
-        if counter_errors == 0:
-            st.success("Counter sequence check passed.")
-        else:
-            st.error("Counter sequence check failed.")
-
-        if dt_errors == 0:
-            st.success("dt_us step check passed.")
-        else:
-            st.error("dt_us step check failed.")
