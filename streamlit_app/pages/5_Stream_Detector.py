@@ -49,6 +49,7 @@ def _collector_loop(manager, stop_evt, integration_us: int, chunk_samples: int, 
             for sample in samples:
                 buffer_ref.append(
                     {
+                        "counter": int(sample.idx),
                         "time_s": chunk_start_elapsed + (sample.dt_us / 1_000_000.0),
                         "ch1_counts": int(sample.ch1),
                         "ch0_counts": int(sample.ch0),

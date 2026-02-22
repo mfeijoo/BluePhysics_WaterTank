@@ -101,6 +101,7 @@ static volatile uint16_t det_ch1 = 0;
 
 // Measurement buffer
 struct Sample {
+  uint32_t idx;
   uint32_t dt_us;
   uint16_t ch0;
   uint16_t ch1;
@@ -109,6 +110,7 @@ struct Sample {
 static const uint32_t MEAS_MAX_SAMPLES     = 5000;  // RAM use ~ (5000 * 8) = 40 KB
 static const uint32_t MEAS_DEFAULT_SAMPLES = 1000;  // predefined "period" = samples * integraltimemicros
 static Sample measBuf[MEAS_MAX_SAMPLES];
+static uint32_t det_sample_counter = 0;
 
 //======================================================================
 // PCNT ISR: extend counter when it hits high/low limit
@@ -457,6 +459,7 @@ static void detMeasureAndSendBinary(uint32_t N) {
     detReadOnce();
     last = micros();
 
+    measBuf[i].idx   = det_sample_counter++;
     measBuf[i].dt_us = (uint32_t)(last - t0);
     measBuf[i].ch0   = det_ch0;
     measBuf[i].ch1   = det_ch1;
@@ -501,6 +504,7 @@ static void detMeasureAndSendBinaryWithCoords(uint32_t N, int32_t x_end, int32_t
     detReadOnce();
     last = micros();
 
+    measBuf[i].idx   = det_sample_counter++;
     measBuf[i].dt_us = (uint32_t)(last - t0);
     measBuf[i].ch0   = det_ch0;
     measBuf[i].ch1   = det_ch1;
