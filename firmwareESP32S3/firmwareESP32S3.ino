@@ -531,6 +531,73 @@ static void detMeasureWithCoords(uint32_t N, int32_t x_end, int32_t y_end, int32
 }
 
 
+// Continuous streaming state (rs/re)
+static bool det_streaming = false;
+static uint32_t det_stream_start_us = 0;
+static uint32_t det_stream_last_us = 0;
+static uint32_t det_stream_total = 0;
+
+static void detStreamSendStart() {
+  Serial.write(0xA0);
+  Serial.write(0x01);
+  uint32_t integ = (uint32_t)integraltimemicros;
+  Serial.write((uint8_t*)&integ, 4);
+}
+
+static void detStreamSendEnd() {
+  Serial.write(0xA0);
+  Serial.write(0x03);
+  Serial.write((uint8_t*)&det_stream_total, 4);
+}
+
+static void detStreamStart() {
+  det_streaming = true;
+  det_stream_total = 0;
+  det_stream_start_us = micros();
+  det_stream_last_us = det_stream_start_us;
+
+  digitalWrite(RST_PIN, HIGH);
+  digitalWrite(HOLD_PIN, LOW);
+  detReadOnce();
+  det_stream_last_us = micros();
+
+  detStreamSendStart();
+}
+
+static void detStreamStop() {
+  if (!det_streaming) return;
+  det_streaming = false;
+  detStreamSendEnd();
+}
+
+static void detStreamService() {
+  if (!det_streaming) return;
+
+  uint32_t now = micros();
+  if ((uint32_t)(now - det_stream_last_us) < (uint32_t)integraltimemicros) {
+    return;
+  }
+
+  detReadOnce();
+  uint32_t t = micros();
+  det_stream_last_us = t;
+
+  uint32_t idx = det_sample_counter++;
+  uint32_t dt_us = (uint32_t)(t - det_stream_start_us);
+  uint16_t ch0 = det_ch0;
+  uint16_t ch1 = det_ch1;
+
+  Serial.write(0xA0);
+  Serial.write(0x02);
+  Serial.write((uint8_t*)&idx, 4);
+  Serial.write((uint8_t*)&dt_us, 4);
+  Serial.write((uint8_t*)&ch0, 2);
+  Serial.write((uint8_t*)&ch1, 2);
+
+  det_stream_total++;
+}
+
+
 //============================================================
 // Arduino setup/loop
 //============================================================
@@ -569,6 +636,8 @@ void setup() {
 
 void loop() {
   char cmd[48];
+
+  detStreamService();
 
   if (!readCmd(cmd, sizeof(cmd))) return;
   if (cmd[0] == 0) return;
@@ -612,6 +681,18 @@ void loop() {
     if (v > 50000) v = 50000;    // simple guard
     integraltimemicros = v;
     sendAck('i');
+    return;
+  }
+
+  //-----start continuous stream: rs;
+  if (cmd[0] == 'r' && cmd[1] == 's' && cmd[2] == 0) {
+    detStreamStart();
+    return;
+  }
+
+  //-----end continuous stream: re;
+  if (cmd[0] == 'r' && cmd[1] == 'e' && cmd[2] == 0) {
+    detStreamStop();
     return;
   }
 

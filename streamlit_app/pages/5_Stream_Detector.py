@@ -1,3 +1,4 @@
+import queue
 import threading
 import time
 from datetime import datetime
@@ -12,7 +13,7 @@ if "mgr" not in st.session_state:
     st.session_state.mgr = SerialManager()
 
 mgr = st.session_state.mgr
-st.title("5) Stream Detector (continuous, no motor movement)")
+st.title("5) Stream Detector (continuous firmware stream)")
 
 
 def _init_state():
@@ -23,41 +24,39 @@ def _init_state():
     ss.setdefault("detector_thread", None)
     ss.setdefault("detector_buffer", [])
     ss.setdefault("detector_df", None)
-    ss.setdefault("detector_chunk_samples", 200)
     ss.setdefault("detector_integration_us", 700)
     ss.setdefault("detector_error", None)
     ss.setdefault("detector_error_ref", None)
     ss.setdefault("detector_last_csv", None)
 
 
-def _collector_loop(manager, stop_evt, integration_us: int, chunk_samples: int, start_perf: float, buffer_ref: list, error_ref: dict):
+def _stream_drain_loop(stop_evt, buffer_ref: list, error_ref: dict):
     try:
         while not stop_evt.is_set():
-            result = manager.measure_binary(
-                samples_count=chunk_samples,
-                integration_us=integration_us,
-                timeout_s=max(10.0, (chunk_samples * integration_us / 1e6) * 5.0),
+            try:
+                sample = mgr.rx_queue.get(timeout=0.05)
+            except queue.Empty:
+                continue
+
+            buffer_ref.append(
+                {
+                    "counter": int(sample.idx),
+                    "time_s": float(sample.dt_us) / 1_000_000.0,
+                    "ch1_counts": int(sample.ch1),
+                    "ch0_counts": int(sample.ch0),
+                }
             )
-
-            if not result.get("ok"):
-                error_ref["message"] = result.get("error", "Unknown measurement error")
-                stop_evt.set()
-                break
-
-            chunk_start_elapsed = time.perf_counter() - start_perf
-            samples = result.get("samples", [])
-            for sample in samples:
-                buffer_ref.append(
-                    {
-                        "counter": int(sample.idx),
-                        "time_s": chunk_start_elapsed + (sample.dt_us / 1_000_000.0),
-                        "ch1_counts": int(sample.ch1),
-                        "ch0_counts": int(sample.ch0),
-                    }
-                )
     except Exception as exc:
         error_ref["message"] = f"Collector crashed: {exc}"
         stop_evt.set()
+
+
+def _clear_rx_queue():
+    while True:
+        try:
+            mgr.rx_queue.get_nowait()
+        except queue.Empty:
+            break
 
 
 def _start_collection():
@@ -65,7 +64,13 @@ def _start_collection():
     st.session_state.detector_df = None
     st.session_state.detector_error = None
     st.session_state.detector_last_csv = None
-    st.session_state.detector_start_perf = time.perf_counter()
+
+    _clear_rx_queue()
+
+    integ = int(st.session_state.detector_integration_us)
+    mgr.send_cmd(f"i{integ}")
+    time.sleep(0.05)
+    mgr.send_cmd("rs")
 
     stop_evt = threading.Event()
     st.session_state.detector_stop_evt = stop_evt
@@ -73,25 +78,15 @@ def _start_collection():
     st.session_state.detector_error_ref = error_ref
     buffer_ref = st.session_state.detector_buffer
 
-    t = threading.Thread(
-        target=_collector_loop,
-        args=(
-            mgr,
-            stop_evt,
-            int(st.session_state.detector_integration_us),
-            int(st.session_state.detector_chunk_samples),
-            st.session_state.detector_start_perf,
-            buffer_ref,
-            error_ref,
-        ),
-        daemon=True,
-    )
+    t = threading.Thread(target=_stream_drain_loop, args=(stop_evt, buffer_ref, error_ref), daemon=True)
     st.session_state.detector_thread = t
     st.session_state.detector_running = True
     t.start()
 
 
 def _stop_collection():
+    mgr.send_cmd("re")
+
     stop_evt = st.session_state.detector_stop_evt
     thread = st.session_state.detector_thread
 
@@ -120,43 +115,28 @@ _init_state()
 connected = mgr.is_connected()
 disabled = not connected
 
-c1, c2 = st.columns(2)
-with c1:
-    st.number_input(
-        "Integration time (us)",
-        min_value=50,
-        max_value=50000,
-        step=10,
-        key="detector_integration_us",
-        disabled=st.session_state.detector_running or disabled,
-        help="Sent as i<integration_us>; before each measurement chunk.",
-    )
-with c2:
-    st.number_input(
-        "Chunk size on ESP32 (samples per request)",
-        min_value=10,
-        max_value=30000,
-        step=10,
-        key="detector_chunk_samples",
-        disabled=st.session_state.detector_running or disabled,
-        help="Small chunks avoid large RAM usage on ESP32 while streaming long runs.",
-    )
+st.number_input(
+    "Integration time (us)",
+    min_value=50,
+    max_value=50000,
+    step=10,
+    key="detector_integration_us",
+    disabled=st.session_state.detector_running or disabled,
+    help="Sent as i<integration_us>; before rs;",
+)
 
 b1, b2 = st.columns(2)
 with b1:
     if st.button("Start collecting", use_container_width=True, disabled=disabled or st.session_state.detector_running):
         _start_collection()
-        st.success("Detector collection started")
+        st.success("Detector streaming started")
 with b2:
     if st.button("Stop collecting", use_container_width=True, disabled=disabled or not st.session_state.detector_running):
         _stop_collection()
-        st.warning("Detector collection stopped and data saved to DataFrame")
+        st.warning("Detector streaming stopped and data saved to DataFrame")
 
 st.write("Connected:", connected)
-thread = st.session_state.detector_thread
-if st.session_state.detector_running and thread is not None and not thread.is_alive():
-    st.session_state.detector_running = False
-
+st.write("Firmware streaming active:", mgr.streaming_active)
 st.write("Running:", st.session_state.detector_running)
 
 if st.session_state.detector_error_ref and st.session_state.detector_error_ref.get("message"):
