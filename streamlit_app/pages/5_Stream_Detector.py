@@ -164,13 +164,16 @@ if st.session_state.detector_error_ref and st.session_state.detector_error_ref.g
 if st.session_state.detector_error:
     st.error(st.session_state.detector_error)
 
-buffer_len = len(st.session_state.detector_buffer)
-st.write("Total points in Python memory buffer:", buffer_len)
+if st.session_state.detector_running:
+    st.info("Collecting data... live table/refresh is paused to avoid acquisition interruptions.")
+else:
+    buffer_len = len(st.session_state.detector_buffer)
+    st.write("Total points in Python memory buffer:", buffer_len)
 
-if buffer_len > 0:
-    tail_df = pd.DataFrame(st.session_state.detector_buffer[-10:])
-    st.subheader("Last 10 measurement points")
-    st.dataframe(tail_df, use_container_width=True, hide_index=True)
+    if buffer_len > 0:
+        tail_df = pd.DataFrame(st.session_state.detector_buffer[-10:])
+        st.subheader("Last 10 measurement points")
+        st.dataframe(tail_df, use_container_width=True, hide_index=True)
 
 if st.session_state.detector_last_csv:
     st.write(f"Last CSV saved to: {st.session_state.detector_last_csv}")
@@ -179,7 +182,3 @@ if st.session_state.detector_df is not None:
     st.subheader("Saved pandas DataFrame (after stop)")
     st.write(f"Rows: {len(st.session_state.detector_df)}")
     st.dataframe(st.session_state.detector_df.tail(10), use_container_width=True, hide_index=True)
-
-if st.session_state.detector_running:
-    time.sleep(0.5)
-    st.rerun()
