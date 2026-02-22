@@ -105,6 +105,10 @@ if st.session_state.streaming_active:
 else:
     st.write(f"Status: Stopped ({len(st.session_state.globalda)} bytes buffered)")
 
+    raw_preview = bytes(st.session_state.globalda)
+    st.write("First 100 bytes of globalda:", list(raw_preview[:100]))
+    st.write("Last 100 bytes of globalda:", list(raw_preview[-100:]))
+
     payload_bytes = 12
     packets, stats = decode_globalda_packets(
         st.session_state.globalda,
