@@ -20,3 +20,7 @@ if st.button("Read coords (P;)", use_container_width=True, disabled=disabled):
         st.code(res["line"])
     else:
         st.error(res.get("error", "Failed"))
+
+if st.button("Zero all axes (z;)", use_container_width=True, disabled=disabled):
+    mgr.send_cmd("z;")
+    st.success("Sent z;")
