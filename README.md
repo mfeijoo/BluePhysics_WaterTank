@@ -125,3 +125,8 @@ Then connect from page **1) Connect** and operate through the remaining pages.
 - `Docs/code.md`
 - `firmwareESP32S3/Readmefirmware.md`
 - `streamlit_app/Readmestreamlitapp.md`
+
+## Tips
+
+1. Under old_firmware_working you will be able to find the old software
+2. That used to work with the detector only and not water tank.
