@@ -101,6 +101,7 @@ static volatile uint16_t det_ch1 = 0;
 
 // Measurement buffer
 struct Sample {
+  uint32_t idx;
   uint32_t dt_us;
   uint16_t ch0;
   uint16_t ch1;
@@ -109,6 +110,7 @@ struct Sample {
 static const uint32_t MEAS_MAX_SAMPLES     = 5000;  // RAM use ~ (5000 * 8) = 40 KB
 static const uint32_t MEAS_DEFAULT_SAMPLES = 1000;  // predefined "period" = samples * integraltimemicros
 static Sample measBuf[MEAS_MAX_SAMPLES];
+//static uint32_t det_sample_counter = 0;
 
 //======================================================================
 // PCNT ISR: extend counter when it hits high/low limit
@@ -329,6 +331,12 @@ static bool parse3DoublesAndU32Comma(const char *s, double &a, double &b, double
 //============================================================
 // Serial helpers
 //============================================================
+
+//-------Helpers for streaming
+unsigned long time_start_streaming = 0;
+unsigned long det_stream_last_us = 0;
+unsigned long det_sample_counter = 0;
+
 static bool readCmd(char *buf, size_t maxlen) {
   static size_t idx = 0;
 
@@ -457,6 +465,7 @@ static void detMeasureAndSendBinary(uint32_t N) {
     detReadOnce();
     last = micros();
 
+    measBuf[i].idx   = det_sample_counter++;
     measBuf[i].dt_us = (uint32_t)(last - t0);
     measBuf[i].ch0   = det_ch0;
     measBuf[i].ch1   = det_ch1;
@@ -501,6 +510,7 @@ static void detMeasureAndSendBinaryWithCoords(uint32_t N, int32_t x_end, int32_t
     detReadOnce();
     last = micros();
 
+    measBuf[i].idx   = det_sample_counter++;
     measBuf[i].dt_us = (uint32_t)(last - t0);
     measBuf[i].ch0   = det_ch0;
     measBuf[i].ch1   = det_ch1;
@@ -524,6 +534,80 @@ static void detMeasureAndSendBinaryWithCoords(uint32_t N, int32_t x_end, int32_t
 
 static void detMeasureWithCoords(uint32_t N, int32_t x_end, int32_t y_end, int32_t z_end) {
   detMeasureAndSendBinaryWithCoords(N, x_end, y_end, z_end);
+}
+
+
+// Continuous streaming state (rs/re)
+static bool det_streaming = false;
+static unsigned long det_stream_start_us = 0;
+//static unsigned long det_stream_last_us = 0;
+static unsigned long det_stream_total = 0;
+
+static void detStreamSendStart() {
+  Serial.write(0xA0);
+  Serial.write(0x01);
+  uint32_t integ = (uint32_t)integraltimemicros;
+  Serial.write((uint8_t*)&integ, 4);
+}
+
+static void detStreamSendEnd() {
+  Serial.write(0xA0);
+  Serial.write(0x03);
+  Serial.write((uint8_t*)&det_stream_total, 4);
+}
+
+static void detStreamStart() {
+  det_streaming = true;
+  det_stream_total = 0;
+  det_sample_counter = 0;
+
+  // Ensure detector starts from known integration state on stream start
+  digitalWrite(RST_PIN, HIGH);
+  digitalWrite(HOLD_PIN, LOW);
+  detReadOnce();
+
+  det_stream_start_us = micros();
+  det_stream_last_us = det_stream_start_us;
+
+  detStreamSendStart();
+}
+
+static void detStreamStop() {
+  if (!det_streaming) return;
+  det_streaming = false;
+  detStreamSendEnd();
+}
+
+static void detStreamService() {
+  if (!det_streaming) return;
+
+  det_stream_last_us = micros();
+
+  while ((uint32_t)(micros() - det_stream_last_us) >= (uint32_t)integraltimemicros) {
+    detReadOnce();
+    det_stream_last_us = micros();
+    unsigned long now = micros();
+
+    unsigned long idx = det_sample_counter++;
+
+    // Serial.write(0xA0);
+    // Serial.write(0x02);
+    // Serial.write((uint8_t*)&idx, 4);
+    // Serial.write((uint8_t*)&dt_us, 4);
+    // Serial.write((uint8_t*)&ch0, 2);
+    // Serial.write((uint8_t*)&ch1, 2);
+
+    Serial.print(idx);
+    Serial.print(",");
+    Serial.print(now);
+    Serial.print(",");
+    Serial.print(det_ch0);
+    Serial.println(det_ch1);
+
+
+
+    //det_stream_total++;
+  }
 }
 
 
@@ -560,14 +644,69 @@ void setup() {
   // SPI
   SPI.begin(DET_SCK, DET_MISO, DET_MOSI);
 
+  //Use this for ADC ADS8688
+  //Set ADC range of all channels to +-2.5 * Vref
+  SPI.beginTransaction(SPISettings(17000000, MSBFIRST, SPI_MODE1));
+  //ch0
+  digitalWrite(CS_ADQ, LOW);
+  SPI.transfer(0x05 << 1 | 1);
+  SPI.transfer16(0x0000);
+  digitalWrite(CS_ADQ, HIGH);
+  //ch1
+  digitalWrite(CS_ADQ, LOW);
+  SPI.transfer(0x06 << 1 | 1);
+  SPI.transfer16(0x0000);
+  digitalWrite(CS_ADQ, HIGH);
+
+  SPI.endTransaction();
+
 }
 
 
 void loop() {
   char cmd[48];
 
+  //detStreamService();
+
   if (!readCmd(cmd, sizeof(cmd))) return;
   if (cmd[0] == 0) return;
+
+
+  //start streaming
+  if (cmd[0] == 'k'){
+    Serial.println("Start Streaming");
+    time_start_streaming = micros();
+    det_stream_last_us = micros();
+    det_sample_counter = 0;
+    det_streaming = true;
+  }
+
+  while (det_streaming) {
+    if ((micros() - det_stream_last_us) >= integraltimemicros) {
+      detReadOnce();
+      det_stream_last_us = micros();
+
+      Serial.print(det_sample_counter);
+      Serial.print(", ");
+      Serial.print(micros() - time_start_streaming);
+      Serial.print(", ");
+      Serial.print(det_ch0);
+      Serial.print(", ");
+      Serial.println(det_ch1);
+
+      det_sample_counter++;
+    }
+    if (Serial.available() > 0){
+      char cmd = Serial.read();
+      if (cmd == 'l'){
+        det_streaming = false;
+        Serial.println("Streaming stopping");
+        Serial.flush();
+      }
+    }
+  }
+  
+
 
   //-------zero------
   if (cmd[0] == 'z' && cmd[1] == 0) {
@@ -608,6 +747,18 @@ void loop() {
     if (v > 50000) v = 50000;    // simple guard
     integraltimemicros = v;
     sendAck('i');
+    return;
+  }
+
+  //-----start continuous stream: rs;
+  if (cmd[0] == 'r' && cmd[1] == 's' && cmd[2] == 0) {
+    detStreamStart();
+    return;
+  }
+
+  //-----end continuous stream: re;
+  if (cmd[0] == 'r' && cmd[1] == 'e' && cmd[2] == 0) {
+    detStreamStop();
     return;
   }
 
