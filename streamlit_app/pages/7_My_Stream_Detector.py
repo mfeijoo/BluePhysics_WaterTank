@@ -7,36 +7,34 @@ st.title("7) My Stream Detector (k / l)")
 
 device = list(serial.tools.list_ports.grep("UART"))[0].device
 
-st.write(device)
+if "ser" not in st.session_state or not st.session_state.ser.is_open:
+    st.session_state.ser = serial.Serial(device, 115200, timeout=1)
 
-ser = serial.Serial(device, 115200, timeout=1)
+if "streaming_active" not in st.session_state:
+    st.session_state.streaming_active = False
 
-if 'globalda' not in st.session_state:
-    st.session_state.globalda = b''
+if "globalda" not in st.session_state:
+    st.session_state.globalda = bytearray()
 
-if st.button("Stop Stream (l)"):
-    st.write("Stop Streaming")
-    streaming = False
-    ser.write(b'l')
-    st.write("Begining of data: ")
-    st.write(st.session_state.globalda[:100])
-    st.write("End of Data: ")
-    st.write(st.session_state.globalda[-100:])
+ser = st.session_state.ser
 
 if st.button("Start Stream (k;)"):
-    st.session_state.globalda = b''
-    streaming = True
-    st.write("Start Streaming")
-    ser.write(b'k;')
-    while (streaming):
-        try:
-            if ser.in_waiting:
-                inbytes = ser.read(ser.in_waiting)
-                st.session_state.globalda += inbytes
-                print(st.session_state.globalda)
-        except serial.serialutil.SerialException:
-            pass
+    st.session_state.globalda = bytearray()
+    ser.write(b"k;")
+    st.session_state.streaming_active = True
 
-if st.button("Disconnect"):
-    ser.close()
+if st.button("Stop Stream (l)"):
+    ser.write(b"l")
+    st.session_state.streaming_active = False
 
+if st.session_state.streaming_active:
+    try:
+        if ser.in_waiting:
+            st.session_state.globalda.extend(ser.read(ser.in_waiting))
+    except serial.serialutil.SerialException:
+        st.session_state.streaming_active = False
+
+    st.write(f"Status: Streaming ({len(st.session_state.globalda)} bytes buffered)")
+    st.rerun()
+else:
+    st.write(f"Status: Stopped ({len(st.session_state.globalda)} bytes buffered)")
