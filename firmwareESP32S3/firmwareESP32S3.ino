@@ -27,8 +27,8 @@ static const int Z_ENC_B = 16;
 //===========================================================================
 // STEPPING SETTINGS
 //===========================================================================
-static const uint32_t STEP_PULSE_US = 800; // STEP high time
-static const uint32_t STEP_GAP_US   = 800; // STEP low time
+static volatile uint32_t STEP_PULSE_US = 800; // STEP high time
+static volatile uint32_t STEP_GAP_US   = 800; // STEP low time
 
 //===============================================================================
 // PCNT 32-bit extensions settings
@@ -57,18 +57,9 @@ static Pcnt32 pcZ {PCNT_UNIT_2, PCNT_CHANNEL_0, Z_ENC_A, Z_ENC_B};
 static volatile int32_t z_offset = 0;
 
 // =================== KINEMATICS / CALIBRATION ===================
-static const double STEPS_PER_REV      = 200.0;   // full steps, no microstep
-static const double ENC_COUNTS_PER_REV = 2000.0;  // 1000 PPR * 2 (your PCNT mode)
-
-static const double WHEEL_DIAMETER_MM = 12.0;
-static const double YZ_MM_PER_REV     = WHEEL_DIAMETER_MM * 3.141592653589793;
-static const double X_MM_PER_REV      = 1.0;
-
-static const double X_MM_PER_COUNT = X_MM_PER_REV  / ENC_COUNTS_PER_REV;
-static const double Y_MM_PER_COUNT = YZ_MM_PER_REV / ENC_COUNTS_PER_REV;
-static const double Z_MM_PER_COUNT = YZ_MM_PER_REV / ENC_COUNTS_PER_REV;
-
-static const double COUNTS_PER_STEP = ENC_COUNTS_PER_REV / STEPS_PER_REV;
+static const double STEPS_PER_REV      = 200.0;
+static const double ENC_COUNTS_PER_REV = 400.0;
+static const double COUNTS_PER_STEP    = ENC_COUNTS_PER_REV / STEPS_PER_REV;
 
 //===============================================================================
 // =================== DETECTOR / SPI SETTINGS ===================
@@ -285,48 +276,39 @@ static void moveXYZSyncSteps(int32_t sx, int32_t sy, int32_t sz) {
 }
 
 
-//============================================================
-// MM helpers
-//============================================================
-static double xMM() { return (double)pcntRead32(pcX) * X_MM_PER_COUNT; }
-static double yMM() { return (double)pcntRead32(pcY) * Y_MM_PER_COUNT; }
-static double zMM() { return (double)zCoord()         * Z_MM_PER_COUNT; } // logical Z
-
 static int32_t llround_i32(double v) { return (int32_t)llround(v); }
-static int32_t mmToTargetCountsX(double mm) { return llround_i32(mm / X_MM_PER_COUNT); }
-static int32_t mmToTargetCountsY(double mm) { return llround_i32(mm / Y_MM_PER_COUNT); }
-static int32_t mmToTargetCountsZ(double mm) { return llround_i32(mm / Z_MM_PER_COUNT); }
-static int32_t deltaCountsToSteps(int32_t dcounts) {
-  return llround_i32((double)dcounts / COUNTS_PER_STEP);
+
+static int32_t countsToSteps(int32_t counts) {
+  return llround_i32((double)counts / COUNTS_PER_STEP);
 }
 
-static bool parse3DoublesComma(const char *s, double &a, double &b, double &c) {
+static int32_t stepsToCounts(int32_t steps) {
+  return llround_i32((double)steps * COUNTS_PER_STEP);
+}
+
+static bool parse3Int32Comma(const char *s, int32_t &a, int32_t &b, int32_t &c) {
   char *end = nullptr;
-  a = strtod(s, &end);
+  long va = strtol(s, &end, 10);
   if (end == s || *end != ',') return false;
-  b = strtod(end + 1, &end);
+  long vb = strtol(end + 1, &end, 10);
   if (*end != ',') return false;
-  c = strtod(end + 1, &end);
+  long vc = strtol(end + 1, &end, 10);
+  a = (int32_t)va; b = (int32_t)vb; c = (int32_t)vc;
   return true;
 }
 
-static bool parse3DoublesAndU32Comma(const char *s, double &a, double &b, double &c, uint32_t &n) {
+static bool parse3Int32AndU32Comma(const char *s, int32_t &a, int32_t &b, int32_t &c, uint32_t &n) {
   char *end = nullptr;
-
-  a = strtod(s, &end);
+  long va = strtol(s, &end, 10);
   if (end == s || *end != ',') return false;
-
-  b = strtod(end + 1, &end);
+  long vb = strtol(end + 1, &end, 10);
   if (*end != ',') return false;
-
-  c = strtod(end + 1, &end);
+  long vc = strtol(end + 1, &end, 10);
   if (*end != ',') return false;
-
-  n = (uint32_t)strtoul(end + 1, &end, 10);
+  unsigned long vn = strtoul(end + 1, &end, 10);
+  a = (int32_t)va; b = (int32_t)vb; c = (int32_t)vc; n = (uint32_t)vn;
   return true;
 }
-
-
 
 //============================================================
 // Serial helpers
@@ -344,7 +326,8 @@ static bool readCmd(char *buf, size_t maxlen) {
 
   while (Serial.available()) {
     char c = (char)Serial.read();
-    if (c == '\r' || c == '\n') continue;
+    if (c == '' || c == '
+') continue;
 
     if (c == ';') {
       buf[idx] = 0;
@@ -392,22 +375,12 @@ static void sendCoordsPacket(uint8_t type) {
   int32_t y = pcntRead32(pcY);
   int32_t z = zCoord();
 
-  float xm = (float)xMM();
-  float ym = (float)yMM();
-  float zm = (float)zMM();
-
   sendPktHeader(type);
   Serial.write((uint8_t*)&x, 4);
   Serial.write((uint8_t*)&y, 4);
   Serial.write((uint8_t*)&z, 4);
-  Serial.write((uint8_t*)&xm, 4);
-  Serial.write((uint8_t*)&ym, 4);
-  Serial.write((uint8_t*)&zm, 4);
 }
 
-//============================================================
-// DETECTOR: SPI read (based on your old model10board approach)
-//============================================================
 static void detReadChannels() {
   SPI.beginTransaction(detSPI);
 
@@ -750,6 +723,24 @@ void loop() {
     return;
   }
 
+
+  //-----set step pulse+gap times in us: T800,800;
+  if (cmd[0] == 'T') {
+    char *end = nullptr;
+    unsigned long p = strtoul(cmd + 1, &end, 10);
+    if (end == cmd + 1 || *end != ',') {
+      sendErr('T', 0x01);
+      return;
+    }
+    unsigned long g = strtoul(end + 1, &end, 10);
+    if (p < 1) p = 1;
+    if (g < 1) g = 1;
+    STEP_PULSE_US = (uint32_t)p;
+    STEP_GAP_US = (uint32_t)g;
+    sendAck('T');
+    return;
+  }
+
   //-----start continuous stream: rs;
   if (cmd[0] == 'r' && cmd[1] == 's' && cmd[2] == 0) {
     detStreamStart();
@@ -778,27 +769,19 @@ void loop() {
   //============================================================
   if (cmd[0] == 'M') {
     sendAck('M');
-    double tx_mm, ty_mm, tz_mm;
-    if (!parse3DoublesComma(cmd + 1, tx_mm, ty_mm, tz_mm)) {
+    int32_t tx_steps, ty_steps, tz_steps;
+    if (!parse3Int32Comma(cmd + 1, tx_steps, ty_steps, tz_steps)) {
       sendErr('M', 0x01);
       return;
     }
 
-    int32_t cx = pcntRead32(pcX);
-    int32_t cy = pcntRead32(pcY);
-    int32_t cz = zCoord();
+    int32_t cx_steps = countsToSteps(pcntRead32(pcX));
+    int32_t cy_steps = countsToSteps(pcntRead32(pcY));
+    int32_t cz_steps = countsToSteps(zCoord());
 
-    int32_t tx = mmToTargetCountsX(tx_mm);
-    int32_t ty = mmToTargetCountsY(ty_mm);
-    int32_t tz = mmToTargetCountsZ(tz_mm);
-
-    int32_t dx = tx - cx;
-    int32_t dy = ty - cy;
-    int32_t dz = tz - cz;
-
-    int32_t sx = deltaCountsToSteps(dx);
-    int32_t sy = deltaCountsToSteps(dy);
-    int32_t sz = deltaCountsToSteps(dz);
+    int32_t sx = tx_steps - cx_steps;
+    int32_t sy = ty_steps - cy_steps;
+    int32_t sz = tz_steps - cz_steps;
 
     if (sx != 0) moveAxisSteps('x', sx);
 
@@ -821,26 +804,18 @@ void loop() {
   //============================================================
   if (cmd[0] == 'S') {
     sendAck('S');
-    double tx_mm, ty_mm, tz_mm;
-    if (!parse3DoublesComma(cmd + 1, tx_mm, ty_mm, tz_mm)) {
+    int32_t tx_steps, ty_steps, tz_steps;
+    if (!parse3Int32Comma(cmd + 1, tx_steps, ty_steps, tz_steps)) {
       return;
     }
 
-    int32_t cx = pcntRead32(pcX);
-    int32_t cy = pcntRead32(pcY);
-    int32_t cz = zCoord();
+    int32_t cx_steps = countsToSteps(pcntRead32(pcX));
+    int32_t cy_steps = countsToSteps(pcntRead32(pcY));
+    int32_t cz_steps = countsToSteps(zCoord());
 
-    int32_t tx = mmToTargetCountsX(tx_mm);
-    int32_t ty = mmToTargetCountsY(ty_mm);
-    int32_t tz = mmToTargetCountsZ(tz_mm);
-
-    int32_t dx = tx - cx;
-    int32_t dy = ty - cy;
-    int32_t dz = tz - cz;
-
-    int32_t sx = deltaCountsToSteps(dx);
-    int32_t sy = deltaCountsToSteps(dy);
-    int32_t sz = deltaCountsToSteps(dz);
+    int32_t sx = tx_steps - cx_steps;
+    int32_t sy = ty_steps - cy_steps;
+    int32_t sz = tz_steps - cz_steps;
 
 
     // For Z offset correction:
@@ -854,7 +829,7 @@ void loop() {
     int32_t actual_delta = (z_after - z_before);
 
     // Expected encoder counts change from independent Z steps only
-    int32_t expected_indep = llround_i32((double)sz * COUNTS_PER_STEP);
+    int32_t expected_indep = stepsToCounts(sz);
 
     // The remainder is "caused by coupled Y"
     int32_t caused_by_Y = actual_delta - expected_indep;
@@ -872,29 +847,21 @@ void loop() {
   // Example: Q10,25.5,-3,2000;
   //============================================================
   if (cmd[0] == 'Q') {
-    double tx_mm, ty_mm, tz_mm;
+    int32_t tx_steps, ty_steps, tz_steps;
     uint32_t N = MEAS_DEFAULT_SAMPLES;
 
-    if (!parse3DoublesAndU32Comma(cmd + 1, tx_mm, ty_mm, tz_mm, N)) {
+    if (!parse3Int32AndU32Comma(cmd + 1, tx_steps, ty_steps, tz_steps, N)) {
       return;
     }
 
     // --- MOVE (same logic as M) ---
-    int32_t cx = pcntRead32(pcX);
-    int32_t cy = pcntRead32(pcY);
-    int32_t cz = zCoord();
+    int32_t cx_steps = countsToSteps(pcntRead32(pcX));
+    int32_t cy_steps = countsToSteps(pcntRead32(pcY));
+    int32_t cz_steps = countsToSteps(zCoord());
 
-    int32_t tx = mmToTargetCountsX(tx_mm);
-    int32_t ty = mmToTargetCountsY(ty_mm);
-    int32_t tz = mmToTargetCountsZ(tz_mm);
-
-    int32_t dx = tx - cx;
-    int32_t dy = ty - cy;
-    int32_t dz = tz - cz;
-
-    int32_t sx = deltaCountsToSteps(dx);
-    int32_t sy = deltaCountsToSteps(dy);
-    int32_t sz = deltaCountsToSteps(dz);
+    int32_t sx = tx_steps - cx_steps;
+    int32_t sy = ty_steps - cy_steps;
+    int32_t sz = tz_steps - cz_steps;
 
     
 

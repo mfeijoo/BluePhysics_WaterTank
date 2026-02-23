@@ -1,23 +1,28 @@
 import streamlit as st
 import pandas as pd
 
-from protocol import counts_to_volts, counts_to_mm_x, counts_to_mm_y, counts_to_mm_z
+from protocol import counts_to_volts
+from settings import counts_to_mm, get_motion_settings, mm_to_steps
 
 
 mgr = st.session_state.mgr
+cfg = get_motion_settings(st.session_state)
 st.title("4) Move and Measure at End (Qx,y,z,N)")
 
 disabled = (not mgr.is_connected()) or mgr.streaming_active
-st.caption("Runs Qx,y,z,N and parses the ADEF binary payload (samples + end coordinates).")
+st.caption("Runs Qx,y,z,N and parses the ADEF binary payload (samples + end coordinates). Q is sent in STEPS.")
 
 x = st.number_input("X target (mm)", value=10.0, step=1.0)
 y = st.number_input("Y target (mm)", value=25.5, step=1.0)
 z = st.number_input("Z target (mm)", value=-3.0, step=1.0)
 N = st.number_input("Samples N", min_value=1, max_value=30000, value=200, step=50)
 
+sx, sy, sz = mm_to_steps(cfg, "x", x), mm_to_steps(cfg, "y", y), mm_to_steps(cfg, "z", z)
+st.caption(f"Converted targets in steps -> X:{sx}, Y:{sy}, Z:{sz}")
+
 if st.button("Run Q...", use_container_width=True, disabled=disabled):
     with st.spinner("Running move + measurement in binary mode..."):
-        result = mgr.move_and_measure_binary(float(x), float(y), float(z), int(N))
+        result = mgr.move_and_measure_binary(int(sx), int(sy), int(sz), int(N))
     st.session_state.move_measure_result = result
 
 if "move_measure_result" in st.session_state:
@@ -33,6 +38,9 @@ if "move_measure_result" in st.session_state:
             "x_end_counts": result["x_end"],
             "y_end_counts": result["y_end"],
             "z_end_counts": result["z_end"],
+            "x_end_mm": round(counts_to_mm(cfg, "x", result["x_end"]), 3),
+            "y_end_mm": round(counts_to_mm(cfg, "y", result["y_end"]), 3),
+            "z_end_mm": round(counts_to_mm(cfg, "z", result["z_end"]), 3),
         })
 
         rows = [
@@ -48,10 +56,8 @@ if "move_measure_result" in st.session_state:
         ]
 
         df = pd.DataFrame(rows)
-
         st.subheader("First 10 measurements")
         st.dataframe(df.head(10), use_container_width=True)
-
         st.subheader("Last 2 measurements")
         st.dataframe(df.tail(2), use_container_width=True)
 
