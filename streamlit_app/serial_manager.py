@@ -9,6 +9,7 @@ from protocol import (
     try_parse_measure_packet,
     try_parse_move_measure_packet,
 )
+from settings import DEFAULTS, counts_to_mm, get_motion_settings
 
 def list_ports():
     return list(serial.tools.list_ports.comports())
@@ -65,10 +66,10 @@ class SerialManager:
             self.ser.write(cmd.encode("ascii"))
             self.ser.flush()
 
-    def get_coords_packet(self):
+    def get_coords_packet(self, state=None):
         """
         Fetch coords from firmware command P; as binary packet:
-          AA 55 20 + i32 x + i32 y + i32 z + f32 x_mm + f32 y_mm + f32 z_mm
+          AA 55 20 + i32 x + i32 y + i32 z
         Must NOT be called while streaming.
         """
         if self.streaming_active:
@@ -93,10 +94,14 @@ class SerialManager:
                     if n:
                         buf += self.ser.read(n)
 
-                # Binary coords packet: AA 55 20 + payload(24 bytes)
+                # Binary coords packet: AA 55 20 + payload(12 bytes)
                 j = buf.find(b"\xAA\x55\x20")
-                if j >= 0 and len(buf) >= j + 27:
-                    x_cnt, y_cnt, z_cnt, x, y, z = struct.unpack_from("<iiifff", buf, j + 3)
+                if j >= 0 and len(buf) >= j + 15:
+                    x_cnt, y_cnt, z_cnt = struct.unpack_from("<iii", buf, j + 3)
+                    cfg = get_motion_settings(state) if state is not None else DEFAULTS
+                    x = counts_to_mm(cfg, "x", x_cnt)
+                    y = counts_to_mm(cfg, "y", y_cnt)
+                    z = counts_to_mm(cfg, "z", z_cnt)
                     return {
                         "ok": True,
                         "line": f"X mm: {x:.3f}, Y mm: {y:.3f}, Z mm: {z:.3f}",
@@ -166,7 +171,7 @@ class SerialManager:
             self.start_rx_thread()
 
 
-    def move_and_measure_binary(self, x_mm: float, y_mm: float, z_mm: float, samples_count: int, timeout_s: float = 60.0):
+    def move_and_measure_binary(self, x_steps: int, y_steps: int, z_steps: int, samples_count: int, timeout_s: float = 60.0):
         """
         Run move+measure using Qx,y,z,N; and parse the ADEF binary packet.
         Returns dict with packet data or error.
@@ -185,7 +190,7 @@ class SerialManager:
             with self.lock:
                 self.ser.reset_input_buffer()
                 self.ser.reset_output_buffer()
-                self.ser.write(f"Q{x_mm},{y_mm},{z_mm},{n};".encode("ascii"))
+                self.ser.write(f"Q{int(x_steps)},{int(y_steps)},{int(z_steps)},{n};".encode("ascii"))
                 self.ser.flush()
 
             buf = bytearray()
@@ -212,6 +217,14 @@ class SerialManager:
             return {"ok": False, "error": "Timeout waiting for binary move+measure packet."}
         finally:
             self.start_rx_thread()
+
+
+    def set_step_timing(self, pulse_us: int, gap_us: int):
+        if not self.is_connected():
+            return
+        with self.lock:
+            self.ser.write(f"T{int(pulse_us)},{int(gap_us)};".encode("ascii"))
+            self.ser.flush()
 
     def start_rx_thread(self):
         if self.rx_thread and self.rx_thread.is_alive():

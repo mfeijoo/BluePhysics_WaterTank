@@ -14,7 +14,7 @@ if st.button("Send move", use_container_width=True, disabled=disabled):
     st.success(f"Sent {axis}{int(steps)};")
 
 if st.button("Read coords (P;)", use_container_width=True, disabled=disabled):
-    res = mgr.get_coords_packet()
+    res = mgr.get_coords_packet(st.session_state)
     if res.get("ok"):
         st.session_state.coords = res
         st.code(res["line"])
