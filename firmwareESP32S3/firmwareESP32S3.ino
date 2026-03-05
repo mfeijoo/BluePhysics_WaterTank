@@ -326,9 +326,6 @@ static bool readCmd(char *buf, size_t maxlen) {
 
   while (Serial.available()) {
     char c = (char)Serial.read();
-    if (c == '' || c == '
-') continue;
-
     if (c == ';') {
       buf[idx] = 0;
       idx = 0;
