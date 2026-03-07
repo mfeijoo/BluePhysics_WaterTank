@@ -618,11 +618,17 @@ void setup() {
   pinMode(CS_ADQ, OUTPUT);
   digitalWrite(CS_ADQ, HIGH);
 
+  Serial.println("[TEMP] Initializing MCP9808 at 0x18...");
   temp_sensor_ok = tempsensor.begin(0x18);
   if (temp_sensor_ok) {
     tempsensor.setResolution(3);
     tempsensor.wake();
+    temp = tempsensor.readTempC();
+    tempbytes = (uint16_t)(temp * 100.0f);
+    Serial.print("[TEMP] MCP9808 connected. Startup temp (C): ");
+    Serial.println(temp);
   } else {
+    Serial.println("[TEMP] ERROR: MCP9808 not detected at 0x18. Check wiring/power/I2C.");
     sendErr('t', 0x01);
   }
 
@@ -756,12 +762,14 @@ void loop() {
   if ((cmd[0] == 't' && cmd[1] == 0) ||
       (cmd[0] == 't' && cmd[1] == 'e' && cmd[2] == 0)) {
     if (!temp_sensor_ok) {
+      Serial.println("[TEMP] ERROR: MCP9808 not connected. Cannot read temperature.");
       sendErr('t', 0x01);
       return;
     }
 
     temp = tempsensor.readTempC();
     tempbytes = (uint16_t)(temp * 100.0f);
+    Serial.print("[TEMP] Celsius: ");
     Serial.println(temp);
     return;
   }
