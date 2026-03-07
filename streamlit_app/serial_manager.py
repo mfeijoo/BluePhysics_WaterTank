@@ -219,6 +219,44 @@ class SerialManager:
             self.start_rx_thread()
 
 
+
+    def read_temperature_bytes(self, timeout_s: float = 2.0):
+        """
+        Request temperature bytes using t; and read 2-byte MCP9808 raw value.
+        """
+        if self.streaming_active:
+            return {"ok": False, "error": "Stop streaming first."}
+
+        self.stop_rx_thread()
+        try:
+            if not self.is_connected():
+                return {"ok": False, "error": "Not connected."}
+
+            with self.lock:
+                self.ser.reset_input_buffer()
+                self.ser.reset_output_buffer()
+                self.ser.write(b"t;")
+                self.ser.flush()
+
+            t0 = time.time()
+            buf = bytearray()
+
+            while time.time() - t0 < timeout_s:
+                with self.lock:
+                    n = self.ser.in_waiting
+                    if n:
+                        buf += self.ser.read(n)
+
+                if len(buf) >= 2:
+                    raw, = struct.unpack_from("<H", buf, 0)
+                    return {"ok": True, "raw": int(raw)}
+
+                time.sleep(0.005)
+
+            return {"ok": False, "error": "Timeout waiting for temperature bytes."}
+        finally:
+            self.start_rx_thread()
+
     def set_step_timing(self, pulse_us: int, gap_us: int):
         if not self.is_connected():
             return

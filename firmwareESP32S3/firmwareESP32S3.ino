@@ -11,7 +11,6 @@
 
 Adafruit_MCP9808 tempsensor = Adafruit_MCP9808();
 
-float temp = 27.0;
 unsigned int tempbytes;
 
 
@@ -674,7 +673,8 @@ void loop() {
     //Serial.println(" C");
     //delay(500);
     tempbytes = tempsensor.read16(0x05);
-    //Serial.write();
+    Serial.write((uint8_t*)&tempbytes, 2);
+    return;
   }
 
 
