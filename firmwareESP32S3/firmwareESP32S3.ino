@@ -334,6 +334,27 @@ static bool readCmd(char *buf, size_t maxlen) {
   while (Serial.available()) {
     char c = (char)Serial.read();
     if (c == '\r' || c == '\n') continue;
+static void trimCmd(char *cmd) {
+  // Trim leading spaces/tabs
+  size_t start = 0;
+  while (cmd[start] == ' ' || cmd[start] == '\t') start++;
+  if (start > 0) {
+    size_t i = 0;
+    while (cmd[start + i] != 0) {
+      cmd[i] = cmd[start + i];
+      i++;
+    }
+    cmd[i] = 0;
+  }
+
+  // Trim trailing spaces/tabs
+  size_t len = strlen(cmd);
+  while (len > 0 && (cmd[len - 1] == ' ' || cmd[len - 1] == '\t')) {
+    cmd[len - 1] = 0;
+    len--;
+  }
+}
+
 ') continue;
 
     if (c == ';') {
@@ -640,6 +661,11 @@ void setup() {
   // SPI
   SPI.begin(DET_SCK, DET_MISO, DET_MOSI);
 
+
+  trimCmd(cmd);
+  // Helpful command echo for serial-monitor debugging
+  Serial.print("[CMD] ");
+  Serial.println(cmd);
   //Use this for ADC ADS8688
   //Set ADC range of all channels to +-2.5 * Vref
   SPI.beginTransaction(SPISettings(17000000, MSBFIRST, SPI_MODE1));
@@ -761,6 +787,8 @@ void loop() {
   //-----temperature read to Serial Monitor: t; or te;
   if ((cmd[0] == 't' && cmd[1] == 0) ||
       (cmd[0] == 't' && cmd[1] == 'e' && cmd[2] == 0)) {
+    Serial.println("[TEMP] Temperature command received (use t; or te;)");
+
     if (!temp_sensor_ok) {
       Serial.println("[TEMP] ERROR: MCP9808 not connected. Cannot read temperature.");
       sendErr('t', 0x01);
