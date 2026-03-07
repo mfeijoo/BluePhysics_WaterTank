@@ -3,6 +3,17 @@
 #include "driver/pcnt.h"
 #include <math.h>
 #include <SPI.h>
+#include "Adafruit_MCP9808.h"
+
+//=======================================
+//Temperature create objects
+//=======================================
+
+Adafruit_MCP9808 tempsensor = Adafruit_MCP9808();
+
+float temp = 27.0;
+unsigned int tempbytes;
+
 
 // =================== STEPPER PINS ===================
 static const int X_STEP = 19;
@@ -632,6 +643,17 @@ void setup() {
 
   SPI.endTransaction();
 
+  //Temperature sensor setup
+  tempsensor.begin(0x18);
+  tempsensor.setResolution(3); //this line on
+  // Mode Resolution SampleTime
+  //  0    0.5°C       30 ms
+  //  1    0.25°C      65 ms
+  //  2    0.125°C     130 ms
+  //  3    0.0625°C    250 ms
+  tempsensor.wake(); //this line on
+  Serial.println("Temp Sensor ready");
+
 }
 
 
@@ -642,6 +664,18 @@ void loop() {
 
   if (!readCmd(cmd, sizeof(cmd))) return;
   if (cmd[0] == 0) return;
+
+
+  //measure temperature manually
+  if (cmd[0] == 't') {
+    //Serial.println("Measuring temperature:");
+    //temp = tempsensor.readTempC();
+    //Serial.print(temp);
+    //Serial.println(" C");
+    //delay(500);
+    tempbytes = tempsensor.read16(0x05);
+    //Serial.write();
+  }
 
 
   //start streaming
