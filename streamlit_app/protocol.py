@@ -142,3 +142,12 @@ def try_parse_move_measure_packet(buf: bytearray):
         samples=samples,
     )
     return packet, buf[j + total_len:]
+
+
+def mcp9808_raw_to_celsius(raw: int) -> float:
+    """Convert MCP9808 ambient temp register value to Celsius (Adafruit logic)."""
+    t = int(raw) & 0xFFFF
+    temp = (t & 0x0FFF) / 16.0
+    if t & 0x1000:
+        temp -= 256.0
+    return temp
