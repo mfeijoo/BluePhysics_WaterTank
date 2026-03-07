@@ -3,6 +3,7 @@
 #include "driver/pcnt.h"
 #include <math.h>
 #include <SPI.h>
+#include "Adafruit_MCP9808.h"
 
 // =================== STEPPER PINS ===================
 static const int X_STEP = 19;
@@ -89,6 +90,12 @@ static SPISettings detSPI(17000000, MSBFIRST, SPI_MODE1);
 // Raw detector readings (2 channels like your old code)
 static volatile uint16_t det_ch0 = 0;
 static volatile uint16_t det_ch1 = 0;
+
+// MCP9808 temperature sensor state
+Adafruit_MCP9808 tempsensor = Adafruit_MCP9808();
+static bool temp_sensor_ok = false;
+float temp = 27.0f;
+uint16_t tempbytes = 0;
 
 // Measurement buffer
 struct Sample {
@@ -326,7 +333,7 @@ static bool readCmd(char *buf, size_t maxlen) {
 
   while (Serial.available()) {
     char c = (char)Serial.read();
-    if (c == '' || c == '
+    if (c == '\r' || c == '\n') continue;
 ') continue;
 
     if (c == ';') {
@@ -611,6 +618,14 @@ void setup() {
   pinMode(CS_ADQ, OUTPUT);
   digitalWrite(CS_ADQ, HIGH);
 
+  temp_sensor_ok = tempsensor.begin(0x18);
+  if (temp_sensor_ok) {
+    tempsensor.setResolution(3);
+    tempsensor.wake();
+  } else {
+    sendErr('t', 0x01);
+  }
+
   pinMode(RST_PIN, OUTPUT);
   pinMode(HOLD_PIN, OUTPUT);
   digitalWrite(RST_PIN, HIGH);
@@ -737,6 +752,20 @@ void loop() {
     if (g < 1) g = 1;
     STEP_PULSE_US = (uint32_t)p;
     STEP_GAP_US = (uint32_t)g;
+  //-----temperature read to Serial Monitor: t; or te;
+  if ((cmd[0] == 't' && cmd[1] == 0) ||
+      (cmd[0] == 't' && cmd[1] == 'e' && cmd[2] == 0)) {
+    if (!temp_sensor_ok) {
+      sendErr('t', 0x01);
+      return;
+    }
+
+    temp = tempsensor.readTempC();
+    tempbytes = (uint16_t)(temp * 100.0f);
+    Serial.println(temp);
+    return;
+  }
+
     sendAck('T');
     return;
   }
