@@ -124,7 +124,7 @@ class SerialManager:
 
     def get_coords_packet(self, state=None):
         """
-        Fetch coords from firmware command P; as binary packet:
+        Fetch coords from firmware command p; as binary packet:
           AA 55 20 + i32 x + i32 y + i32 z
         Must NOT be called while streaming.
         """
@@ -135,7 +135,7 @@ class SerialManager:
             with self.lock:
                 self.ser.reset_input_buffer()
                 self.ser.reset_output_buffer()
-                self.ser.write(b"P;")
+                self.ser.write(b"p;")
                 self.ser.flush()
 
             t0 = time.time()
