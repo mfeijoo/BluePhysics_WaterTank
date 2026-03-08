@@ -52,6 +52,12 @@ The system supports the following operations (firmware + app):
 - Firmware prints current min/max `pcnt32` limits for X, Y, and Z in human-readable text
 - Intended for manual serial-monitor debugging
 
+## 11. Binary pcnt32 Limits Packet
+- Send `l;` over serial
+- Firmware replies with ACK frame `AA 55 10 6C` and limits frame `AA 55 23`
+- Payload carries X/Y/Z min/max `int32` limits in little-endian order
+- Intended for machine parsing
+
 ---
 
 # Measurement Timing
@@ -69,7 +75,7 @@ Streaming mode is non-blocking and designed to prevent firmware RAM overflow.
 # Design Principles
 
 - Deterministic firmware
-- Binary-first communication with explicit human-debug commands (`P;`, `start;`, `stop;`)
+- Binary-first communication with explicit human-debug commands (`P;`, `L;`, `start;`, `stop;`)
 - Limit-check failures are emitted as binary error packets (`AA 55 11 <cmd_id> 03`)
 - Clear separation of firmware and UI logic
 - Hardware abstraction ready

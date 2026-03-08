@@ -16,6 +16,7 @@ ASCII command string terminated by semicolon:
 - `p;`
 - `P;`
 - `L;`
+- `l;`
 - `b;`
 - `i700;`
 - `m2000;`
@@ -75,6 +76,19 @@ Same payload layout as `0x20` COORDS (end position).
 ### Type `0x22` ZERO DONE
 
 Same payload layout as `0x20` COORDS (post-zero position).
+
+### Type `0x23` PCNT32 LIMITS
+
+```text
+AA 55 23
+<int32 x_min><int32 x_max>
+<int32 y_min><int32 y_max>
+<int32 z_min><int32 z_max>
+```
+
+- Payload: 24 bytes.
+- Total packet length: 27 bytes.
+- All numeric fields are little-endian.
 
 ---
 
@@ -213,11 +227,27 @@ Z min: <int32>, Z max: <int32>
 - It does **not** send a binary packet and does **not** emit ACK/ERR framing.
 
 
+
+## 7.1) Binary pcnt32 limits packet (`l;`)
+
+For `l;`, firmware sends:
+
+```text
+AA 55 10 6C
+AA 55 23
+<int32 x_min><int32 x_max>
+<int32 y_min><int32 y_max>
+<int32 z_min><int32 z_max>
+```
+
+- `6C` is ASCII `'l'` in the ACK packet.
+- `0x23` payload is little-endian and contains min/max bounds for each axis.
+
 ---
 
 ## 8) Binary parser rules
 
-1. For machine parsing, use binary-response commands (for coordinates use `p;`, not `P;`).
+1. For machine parsing, use binary-response commands (for coordinates use `p;`, for limits use `l;`, not `P;`/`L;`).
 2. Limit-check failures for `x...;`, `y...;`, `z...;`, `Z...;`, and `M...;` are binary `0x11` error packets (no human-readable `Serial.print` diagnostics).
 3. Do not send `tb;` or `th;`.
 4. Keep parser resynchronization logic based on packet headers (`AA55`, `ABCD`, `ADEF`).

@@ -429,6 +429,23 @@ static void sendCoordsPacket(uint8_t type) {
   Serial.write((uint8_t*)&z, 4);
 }
 
+static void sendPcnt32LimitsPacket() {
+  int32_t xmin = limminpcnt32x;
+  int32_t xmax = limmaxpcnt32x;
+  int32_t ymin = limminpcnt32y;
+  int32_t ymax = limmaxpcnt32y;
+  int32_t zmin = limminpcnt32z;
+  int32_t zmax = limmaxpcnt32z;
+
+  sendPktHeader(0x23);
+  Serial.write((uint8_t*)&xmin, 4);
+  Serial.write((uint8_t*)&xmax, 4);
+  Serial.write((uint8_t*)&ymin, 4);
+  Serial.write((uint8_t*)&ymax, 4);
+  Serial.write((uint8_t*)&zmin, 4);
+  Serial.write((uint8_t*)&zmax, 4);
+}
+
 static void printPcnt32ValuesHuman() {
   int32_t x = pcntRead32(pcX);
   int32_t y = yCoord();
@@ -844,6 +861,13 @@ void loop() {
   //-----print current pcnt32 axis limits in human-readable text
   if (cmd[0] == 'L' && cmd[1] == 0) {
     printPcnt32LimitsHuman();
+    return;
+  }
+
+  //-----pcnt32 axis limits in binary packet
+  if (cmd[0] == 'l' && cmd[1] == 0) {
+    sendAck('l');
+    sendPcnt32LimitsPacket();
     return;
   }
 
