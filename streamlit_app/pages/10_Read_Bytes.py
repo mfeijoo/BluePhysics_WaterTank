@@ -18,7 +18,7 @@ samples_count = st.number_input(
     step=10,
 )
 
-run_disabled = (not connected) or mgr.streaming_active
+run_disabled = (not connected)
 if st.button("Run readbytes", use_container_width=True, disabled=run_disabled):
     with st.spinner("Reading detector bytes..."):
         result = mgr.readbytes_binary(samples_count=int(samples_count))
@@ -60,5 +60,3 @@ if "readbytes_result" in st.session_state:
 
 if not connected:
     st.info("Connect on page 1 before using readbytes.")
-if mgr.streaming_active:
-    st.warning("Stop streaming on page 5 before using readbytes.")

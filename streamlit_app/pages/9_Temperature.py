@@ -9,7 +9,7 @@ st.caption("Read MCP9808 temperature using command t; and decode with MCP9808 fo
 
 connected = mgr.is_connected()
 
-if st.button("Read temperature", use_container_width=True, disabled=(not connected) or mgr.streaming_active):
+if st.button("Read temperature", use_container_width=True, disabled=(not connected)):
     result = mgr.read_temperature_bytes()
     st.session_state.temp_result = result
 
@@ -26,5 +26,3 @@ if "temp_result" in st.session_state:
 
 if not connected:
     st.info("Connect on page 1 before reading temperature.")
-if mgr.streaming_active:
-    st.warning("Stop streaming on page 5 before reading temperature.")

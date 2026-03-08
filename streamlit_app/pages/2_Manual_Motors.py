@@ -3,7 +3,7 @@ import streamlit as st
 mgr = st.session_state.mgr
 st.title("2) Manual Motors (xN / yN / zN / YN)")
 
-disabled = (not mgr.is_connected()) or mgr.streaming_active
+disabled = (not mgr.is_connected())
 st.caption("Stop detector streaming before manual motion.")
 
 axis = st.selectbox("Axis command", ["x", "y", "Z"])

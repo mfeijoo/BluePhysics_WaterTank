@@ -17,7 +17,7 @@ with c1:
     if st.button(
         "Start Measuring (rs;)",
         use_container_width=True,
-        disabled=(not connected) or mgr.rs_capture_active or mgr.streaming_active,
+        disabled=(not connected) or mgr.rs_capture_active,
     ):
         start_result = mgr.start_rs_capture()
         if start_result.get("ok"):

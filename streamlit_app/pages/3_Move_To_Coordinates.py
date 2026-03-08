@@ -6,7 +6,7 @@ mgr = st.session_state.mgr
 cfg = get_motion_settings(st.session_state)
 st.title("3) Move to Coordinates (M / S)")
 
-disabled = (not mgr.is_connected()) or mgr.streaming_active
+disabled = (not mgr.is_connected())
 st.caption("Stop streaming before moving. Commands sent to firmware are in STEPS.")
 
 x = st.number_input("X target (mm)", value=10.0, step=1.0)

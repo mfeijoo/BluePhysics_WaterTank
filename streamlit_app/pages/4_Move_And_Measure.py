@@ -9,7 +9,7 @@ mgr = st.session_state.mgr
 cfg = get_motion_settings(st.session_state)
 st.title("4) Move and Measure at End (Qx,y,z,N)")
 
-disabled = (not mgr.is_connected()) or mgr.streaming_active
+disabled = (not mgr.is_connected())
 st.caption("Runs Qx,y,z,N and parses the ADEF binary payload (samples + end coordinates). Q is sent in STEPS.")
 
 x = st.number_input("X target (mm)", value=10.0, step=1.0)
@@ -71,5 +71,3 @@ if "move_measure_result" in st.session_state:
     else:
         st.error(result.get("error", "Unknown error during move+measure."))
 
-if mgr.streaming_active:
-    st.warning("Stop streaming on page 5 before using Q move+measure.")
