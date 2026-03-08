@@ -6,7 +6,7 @@ st.title("2) Manual Motors (xN / yN / zN / YN)")
 disabled = (not mgr.is_connected()) or mgr.streaming_active
 st.caption("Stop detector streaming before manual motion.")
 
-axis = st.selectbox("Axis command", ["x", "y", "z", "Y"])
+axis = st.selectbox("Axis command", ["x", "y", "z", "Z"])
 steps = st.number_input("Steps (can be negative)", value=200, step=10)
 
 if st.button("Send move", use_container_width=True, disabled=disabled):
