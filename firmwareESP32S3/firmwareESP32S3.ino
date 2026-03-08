@@ -14,8 +14,12 @@ Adafruit_MCP9808 tempsensor = Adafruit_MCP9808();
 ADS1115_WE adc(0x48);
 
 unsigned int tempbytes;
-int16_t adc0 = 0;
-float adc0V = 0.0000;
+
+float PSV;
+#define PSFC 16.256
+#define PSFCind 0.00864
+//#define PSFC 1
+//#define PSFCind 0
 
 
 // =================== STEPPER PINS ===================
@@ -617,13 +621,11 @@ static void detStreamService() {
   }
 }
 
-static float readPS0Voltage() {
+static void readPS() {
   adc.setCompareChannels(ADS1115_COMP_0_GND);
   adc.startSingleMeasurement();
-  delay(500); //I am not sure what is the minimum time we need to wait until ADS1115 is ready to get the result
-  adc0 = adc.getRawResult();
-  adc0V = adc.getResult_V();
-  return adc0V;
+  while(adc.isBusy()){};
+  PSV = adc.getResult_V() * PSFC + PSFCind;
 }
 
 
@@ -814,9 +816,9 @@ void loop() {
 
   // read power supply PS0 (send: ps0;)
   if (cmd[0] == 'p' && cmd[1] == 's' && cmd[2] == '0' && cmd[3] == 0) {
-    float ps0Voltage = readPS0Voltage();
+    readPS();
     Serial.print("PS0 voltage: ");
-    Serial.print(ps0Voltage, 4);
+    Serial.print(PSV, 4);
     Serial.println(" V");
     return;
   }
