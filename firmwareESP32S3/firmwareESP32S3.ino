@@ -72,7 +72,7 @@ static Pcnt32 pcZ {PCNT_UNIT_2, PCNT_CHANNEL_0, Z_ENC_A, Z_ENC_B};
 //============================================================
 // Z logical coordinate offset (so Z comp moves don't change "coord Z")
 //============================================================
-static volatile int32_t z_offset = 0;
+static volatile int32_t y_offset = 0;
 
 // =================== KINEMATICS / CALIBRATION ===================
 static const double STEPS_PER_REV      = 200.0;
@@ -196,9 +196,9 @@ static void pcntZero(Pcnt32 &p) {
   pcnt_counter_resume(p.unit);
 }
 
-// Logical Z coordinate (raw Z + software offset)
-static int32_t zCoord() {
-  return pcntRead32(pcZ) + z_offset;
+// Logical Y coordinate (raw y + software offset)
+static int32_t yCoord() {
+  return pcntRead32(pcY) + y_offset;
 }
 
 //============================================================
@@ -253,57 +253,6 @@ static void moveYZCoupledSteps(int32_t steps) {
   }
 }
 
-//============================================================
-// Synchronized multi-axis stepping (DDA / Bresenham style)
-// Moves X, (Y coupled with Z), and Z so they finish together.
-//============================================================
-static void moveXYZSyncSteps(int32_t sx, int32_t sy, int32_t sz) {
-  uint32_t ax = (sx >= 0) ? (uint32_t)sx : (uint32_t)(-sx);
-  uint32_t ay = (sy >= 0) ? (uint32_t)sy : (uint32_t)(-sy);
-  uint32_t az = (sz >= 0) ? (uint32_t)sz : (uint32_t)(-sz);
-
-  uint32_t n = ax;
-  if (ay > n) n = ay;
-  if (az > n) n = az;
-  if (n == 0) return;
-
-  // Set directions
-  digitalWrite(X_DIR, (sx >= 0) ? HIGH : LOW);
-  digitalWrite(Y_DIR, (sy >= 0) ? HIGH : LOW);
-  digitalWrite(Z_DIR, (sz >= 0) ? HIGH : LOW);
-  delayMicroseconds(2);
-
-  // DDA accumulators
-  uint32_t ex = 0, ey = 0, ez = 0;
-
-  for (uint32_t i = 0; i < n; i++) {
-    ex += ax;
-    ey += ay;
-    ez += az;
-
-    bool doX = false, doY = false, doZ = false;
-
-    if (ex >= n) { ex -= n; doX = true; }
-    if (ey >= n) { ey -= n; doY = true; }
-    if (ez >= n) { ez -= n; doZ = true; }
-
-    // Order: do coupled YZ first, then X, then Z independent
-    if (doY) stepPulse2(Y_STEP, Z_STEP);   // coupled Y+Z pulse
-    if (doX) stepPulse(X_STEP);
-    if (doZ) stepPulse(Z_STEP);
-  }
-}
-
-
-static int32_t llround_i32(double v) { return (int32_t)llround(v); }
-
-static int32_t countsToSteps(int32_t counts) {
-  return llround_i32((double)counts / COUNTS_PER_STEP);
-}
-
-static int32_t stepsToCounts(int32_t steps) {
-  return llround_i32((double)steps * COUNTS_PER_STEP);
-}
 
 static bool parse3Int32Comma(const char *s, int32_t &a, int32_t &b, int32_t &c) {
   char *end = nullptr;
@@ -366,18 +315,6 @@ static bool readCmd(char *buf, size_t maxlen) {
   return false;
 }
 
-static void sendCoordsBinary() {
-  int32_t x = pcntRead32(pcX);
-  int32_t y = pcntRead32(pcY);
-  int32_t z = zCoord();
-
-  Serial.write(0xAA);
-  Serial.write(0x55);
-  Serial.write((uint8_t*)&x, 4);
-  Serial.write((uint8_t*)&y, 4);
-  Serial.write((uint8_t*)&z, 4);
-}
-
 static void sendPktHeader(uint8_t type) {
   Serial.write(0xAA);
   Serial.write(0x55);
@@ -397,8 +334,8 @@ static void sendErr(uint8_t cmd_id, uint8_t err_code) {
 
 static void sendCoordsPacket(uint8_t type) {
   int32_t x = pcntRead32(pcX);
-  int32_t y = pcntRead32(pcY);
-  int32_t z = zCoord();
+  int32_t y = yCoord();
+  int32_t z = pcntRead32(pcZ);
 
   sendPktHeader(type);
   Serial.write((uint8_t*)&x, 4);
@@ -457,50 +394,6 @@ static void detReadOnce() {
   digitalWrite(HOLD_PIN, LOW);
 }
 
-static void detMeasureAndSendBinary(uint32_t N) {
-  if (N == 0) N = 1;
-  if (N > MEAS_MAX_SAMPLES) N = MEAS_MAX_SAMPLES;
-
-
-  uint32_t t0 = micros();
-
-  digitalWrite(RST_PIN, HIGH);
-  digitalWrite(HOLD_PIN, LOW);
-
-  detReadOnce();
-  uint32_t last = micros();
-
-  for (uint32_t i = 0; i < N; i++) {
-    while ((uint32_t)(micros() - last) < (uint32_t)integraltimemicros) { /* busy wait */ }
-
-    detReadOnce();
-    last = micros();
-
-    measBuf[i].idx   = det_sample_counter++;
-    measBuf[i].dt_us = (uint32_t)(last - t0);
-    measBuf[i].ch0   = det_ch0;
-    measBuf[i].ch1   = det_ch1;
-  }
-
-  Serial.flush();   // ensure the line is out before raw bytes
-
-
-  // Header
-  Serial.write(0xAB);
-  Serial.write(0xCD);
-
-  Serial.write((uint8_t*)&N, 4);
-
-  uint32_t integ = (uint32_t)integraltimemicros;
-  Serial.write((uint8_t*)&integ, 4);
-
-  // Payload
-  Serial.write((uint8_t*)measBuf, N * sizeof(Sample));
-}
-
-static void detMeasure(uint32_t N) {
-  detMeasureAndSendBinary(N);
-}
 
 static void detReadAndPrintHuman(uint32_t N) {
   if (N == 0) {
@@ -582,125 +475,6 @@ static void detReadAndSendBytes(uint32_t N) {
   Serial.write((uint8_t*)measBuf, N * sizeof(Sample));
 }
 
-static void detMeasureAndSendBinaryWithCoords(uint32_t N, int32_t x_end, int32_t y_end, int32_t z_end) {
-  if (N == 0) N = 1;
-  if (N > MEAS_MAX_SAMPLES) N = MEAS_MAX_SAMPLES;
-
-  // Acquire into buffer
-  digitalWrite(RST_PIN, HIGH);
-  digitalWrite(HOLD_PIN, LOW);
-
-  uint32_t t0 = micros();
-
-  detReadOnce();
-  uint32_t last = micros();
-
-  for (uint32_t i = 0; i < N; i++) {
-    while ((uint32_t)(micros() - last) < (uint32_t)integraltimemicros) { /* busy wait */ }
-
-    detReadOnce();
-    last = micros();
-
-    measBuf[i].idx   = det_sample_counter++;
-    measBuf[i].dt_us = (uint32_t)(last - t0);
-    measBuf[i].ch0   = det_ch0;
-    measBuf[i].ch1   = det_ch1;
-  }
-
-  // Send one binary block including end coords
-  Serial.write(0xAD);
-  Serial.write(0xEF);
-
-  Serial.write((uint8_t*)&N, 4);
-
-  uint32_t integ = (uint32_t)integraltimemicros;
-  Serial.write((uint8_t*)&integ, 4);
-
-  Serial.write((uint8_t*)&x_end, 4);
-  Serial.write((uint8_t*)&y_end, 4);
-  Serial.write((uint8_t*)&z_end, 4);
-
-  Serial.write((uint8_t*)measBuf, N * sizeof(Sample));
-}
-
-static void detMeasureWithCoords(uint32_t N, int32_t x_end, int32_t y_end, int32_t z_end) {
-  detMeasureAndSendBinaryWithCoords(N, x_end, y_end, z_end);
-}
-
-
-// Continuous streaming state (rs/re)
-static bool det_streaming = false;
-static unsigned long det_stream_start_us = 0;
-//static unsigned long det_stream_last_us = 0;
-static unsigned long det_stream_total = 0;
-
-static void detStreamSendStart() {
-  Serial.write(0xA0);
-  Serial.write(0x01);
-  uint32_t integ = (uint32_t)integraltimemicros;
-  Serial.write((uint8_t*)&integ, 4);
-}
-
-static void detStreamSendEnd() {
-  Serial.write(0xA0);
-  Serial.write(0x03);
-  Serial.write((uint8_t*)&det_stream_total, 4);
-}
-
-static void detStreamStart() {
-  det_streaming = true;
-  det_stream_total = 0;
-  det_sample_counter = 0;
-
-  // Ensure detector starts from known integration state on stream start
-  digitalWrite(RST_PIN, HIGH);
-  digitalWrite(HOLD_PIN, LOW);
-  detReadOnce();
-
-  det_stream_start_us = micros();
-  det_stream_last_us = det_stream_start_us;
-
-  detStreamSendStart();
-}
-
-static void detStreamStop() {
-  if (!det_streaming) return;
-  det_streaming = false;
-  detStreamSendEnd();
-}
-
-static void detStreamService() {
-  if (!det_streaming) return;
-
-  det_stream_last_us = micros();
-
-  while ((uint32_t)(micros() - det_stream_last_us) >= (uint32_t)integraltimemicros) {
-    detReadOnce();
-    det_stream_last_us = micros();
-    unsigned long now = micros();
-
-    unsigned long idx = det_sample_counter++;
-
-    // Serial.write(0xA0);
-    // Serial.write(0x02);
-    // Serial.write((uint8_t*)&idx, 4);
-    // Serial.write((uint8_t*)&dt_us, 4);
-    // Serial.write((uint8_t*)&ch0, 2);
-    // Serial.write((uint8_t*)&ch1, 2);
-
-    Serial.print(idx);
-    Serial.print(",");
-    Serial.print(now);
-    Serial.print(",");
-    Serial.print(det_ch0);
-    Serial.println(det_ch1);
-
-
-
-    //det_stream_total++;
-  }
-}
-
 static void readPS() {
   adc.setCompareChannels(ADS1115_COMP_0_GND);
   adc.startSingleMeasurement();
@@ -728,7 +502,7 @@ void setup() {
   pcntSetup(pcY);
   pcntSetup(pcZ);
 
-  z_offset = 0;
+  y_offset = 0;
 
   // Detector pins
   pinMode(CS_ADQ, OUTPUT);
@@ -833,61 +607,12 @@ void loop() {
     return;
   }
 
-  //change pot manually
-  if (cmd[0]  == 'q' && cmd[1] == 0) {
-    //pot value in counts from 0 to 1023
-    //uint32_t potvalue = (uint32_t)strtoul(cmd + 1, nullptr, 10);
-    //sendAck('q');
-    Serial.println("q command received");
-    Serial.println("pot value received: ");
-    //Serial.print(potvalue);
-    //setpot(potvalue);
-    return;
-
-
-  }
-
-
-  //start streaming
-  if (cmd[0] == 'k'){
-    time_start_streaming = micros();
-    det_stream_last_us = micros();
-    det_sample_counter = 0;
-    det_streaming = true;
-  }
-
-  while (det_streaming) {
-    if ((micros() - det_stream_last_us) >= integraltimemicros) {
-      detReadOnce();
-      det_stream_last_us = micros();
-      unsigned long dt_us = micros() - time_start_streaming;
-
-      Serial.write(K_STREAM_HDR0);
-      Serial.write(K_STREAM_HDR1);
-      Serial.write((uint8_t*)&det_sample_counter, 4);
-      Serial.write((uint8_t*)&dt_us, 4);
-      Serial.write((uint8_t*)&det_ch0, 2);
-      Serial.write((uint8_t*)&det_ch1, 2);
-
-      det_sample_counter++;
-    }
-    if (Serial.available() > 0){
-      char cmd = Serial.read();
-      if (cmd == 'l'){
-        det_streaming = false;
-        Serial.flush();
-      }
-    }
-  }
-  
-
-
   //-------zero------
   if (cmd[0] == 'z' && cmd[1] == 0) {
   pcntZero(pcX);
   pcntZero(pcY);
   pcntZero(pcZ);
-  z_offset = 0;
+  y_offset = 0;
 
   sendAck('z');
   sendCoordsPacket(0x22);
@@ -907,19 +632,6 @@ void loop() {
   if (cmd[0] == 'p' && cmd[1] == 0) {
     sendAck('p');
     sendCoordsPacket(0x20);
-    return;
-  }
-
-  //-----print coords in mm
-  if (cmd[0] == 'P' && cmd[1] == 0) {
-  sendAck('P');
-  sendCoordsPacket(0x20);
-  return;
-}
-
-  //-----binary coords (counts)
-  if (cmd[0] == 'b' && cmd[1] == 0) {
-    sendCoordsBinary();
     return;
   }
 
@@ -960,24 +672,6 @@ void loop() {
     return;
   }
 
-
-  //-----set step pulse+gap times in us: T800,800;
-  if (cmd[0] == 'T') {
-    char *end = nullptr;
-    unsigned long p = strtoul(cmd + 1, &end, 10);
-    if (end == cmd + 1 || *end != ',') {
-      sendErr('T', 0x01);
-      return;
-    }
-    unsigned long g = strtoul(end + 1, &end, 10);
-    if (p < 1) p = 1;
-    if (g < 1) g = 1;
-    STEP_PULSE_US = (uint32_t)p;
-    STEP_GAP_US = (uint32_t)g;
-    sendAck('T');
-    return;
-  }
-
   //-----read detector values and send bytes: readbytesN; e.g. readbytes100;
   if (strncmp(cmd, "readbytes", 9) == 0) {
     char *end = nullptr;
@@ -1004,165 +698,18 @@ void loop() {
     return;
   }
 
-  //-----start continuous stream: rs;
-  if (cmd[0] == 'r' && cmd[1] == 's' && cmd[2] == 0) {
-    detStreamStart();
-    return;
-  }
-
-  //-----end continuous stream: re;
-  if (cmd[0] == 'r' && cmd[1] == 'e' && cmd[2] == 0) {
-    detStreamStop();
-    return;
-  }
-
-  //-----measure: m; or m2000;
-  if (cmd[0] == 'm') {
-    uint32_t N = MEAS_DEFAULT_SAMPLES;
-    if (cmd[1] != 0) {
-      N = (uint32_t)strtoul(cmd + 1, nullptr, 10);
-    }
-    detMeasure(N);
-    return;
-  }
-
-
   //============================================================
-  // Move to absolute mm:  Mx,y,z;
-  //============================================================
-  if (cmd[0] == 'M') {
-    sendAck('M');
-    int32_t tx_steps, ty_steps, tz_steps;
-    if (!parse3Int32Comma(cmd + 1, tx_steps, ty_steps, tz_steps)) {
-      sendErr('M', 0x01);
-      return;
-    }
-
-    int32_t cx_steps = countsToSteps(pcntRead32(pcX));
-    int32_t cy_steps = countsToSteps(pcntRead32(pcY));
-    int32_t cz_steps = countsToSteps(zCoord());
-
-    int32_t sx = tx_steps - cx_steps;
-    int32_t sy = ty_steps - cy_steps;
-    int32_t sz = tz_steps - cz_steps;
-
-    if (sx != 0) moveAxisSteps('x', sx);
-
-    if (sy != 0) {
-      int32_t z_before = pcntRead32(pcZ);
-      moveYZCoupledSteps(sy);
-      int32_t z_after  = pcntRead32(pcZ);
-      z_offset -= (z_after - z_before); // keep logical Z fixed
-    }
-
-    if (sz != 0) moveAxisSteps('z', sz);
-
-    sendCoordsPacket(0x21);
-    return;
-  }
-
-  //============================================================
-  // Synchronized move to absolute mm:  Sx,y,z;
-  // Example: S10,25.5,-3;
-  //============================================================
-  if (cmd[0] == 'S') {
-    sendAck('S');
-    int32_t tx_steps, ty_steps, tz_steps;
-    if (!parse3Int32Comma(cmd + 1, tx_steps, ty_steps, tz_steps)) {
-      return;
-    }
-
-    int32_t cx_steps = countsToSteps(pcntRead32(pcX));
-    int32_t cy_steps = countsToSteps(pcntRead32(pcY));
-    int32_t cz_steps = countsToSteps(zCoord());
-
-    int32_t sx = tx_steps - cx_steps;
-    int32_t sy = ty_steps - cy_steps;
-    int32_t sz = tz_steps - cz_steps;
-
-
-    // For Z offset correction:
-    // raw Z will change due to (1) coupled Y steps AND (2) independent Z steps.
-    // We want logical Z to include only independent Z (sz), not the coupled Y component.
-    int32_t z_before = pcntRead32(pcZ);
-
-    moveXYZSyncSteps(sx, sy, sz);
-
-    int32_t z_after = pcntRead32(pcZ);
-    int32_t actual_delta = (z_after - z_before);
-
-    // Expected encoder counts change from independent Z steps only
-    int32_t expected_indep = stepsToCounts(sz);
-
-    // The remainder is "caused by coupled Y"
-    int32_t caused_by_Y = actual_delta - expected_indep;
-
-    // Remove that from logical Z
-    z_offset -= caused_by_Y;
-
-    sendCoordsPacket(0x21);
-    return;
-  }
-
-
-  //============================================================
-  // Move to absolute mm AND THEN measure:  Qx,y,z,N;
-  // Example: Q10,25.5,-3,2000;
-  //============================================================
-  if (cmd[0] == 'Q') {
-    int32_t tx_steps, ty_steps, tz_steps;
-    uint32_t N = MEAS_DEFAULT_SAMPLES;
-
-    if (!parse3Int32AndU32Comma(cmd + 1, tx_steps, ty_steps, tz_steps, N)) {
-      return;
-    }
-
-    // --- MOVE (same logic as M) ---
-    int32_t cx_steps = countsToSteps(pcntRead32(pcX));
-    int32_t cy_steps = countsToSteps(pcntRead32(pcY));
-    int32_t cz_steps = countsToSteps(zCoord());
-
-    int32_t sx = tx_steps - cx_steps;
-    int32_t sy = ty_steps - cy_steps;
-    int32_t sz = tz_steps - cz_steps;
-
-    
-
-    if (sx != 0) moveAxisSteps('x', sx);
-
-    if (sy != 0) {
-      int32_t z_before = pcntRead32(pcZ);
-      moveYZCoupledSteps(sy);
-      int32_t z_after  = pcntRead32(pcZ);
-      z_offset -= (z_after - z_before); // keep logical Z fixed
-    }
-
-    if (sz != 0) moveAxisSteps('z', sz);
-
-    // --- END COORDS (logical Z) ---
-    int32_t x_end = pcntRead32(pcX);
-    int32_t y_end = pcntRead32(pcY);
-    int32_t z_end = zCoord();
-
-    // --- MEASURE + SEND end coords + samples in chosen mode ---
-    detMeasureWithCoords(N, x_end, y_end, z_end);
-
-    return;
-  }
-
-
-  //============================================================
-  // Coupled move: "Y200" or "Y-50"
+  // Coupled move: "Z200" or "Z-50"
   // TRUE step-by-step coupling Y+Z
   //============================================================
-  if (cmd[0] == 'Y') {
+  if (cmd[0] == 'Z') {
   int32_t n = (int32_t)strtol(cmd + 1, nullptr, 10);
-  sendAck('Y');
+  sendAck('Z');
 
-  int32_t z_before = pcntRead32(pcZ);
+  int32_t y_before = pcntRead32(pcY);
   moveYZCoupledSteps(n);
-  int32_t z_after = pcntRead32(pcZ);
-  z_offset -= (z_after - z_before);
+  int32_t y_after = pcntRead32(pcY);
+  y_offset -= (y_after - y_before);
 
   sendCoordsPacket(0x21);
   return;
