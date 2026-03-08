@@ -9,6 +9,7 @@ from protocol import (
     try_parse_measure_packet,
     try_parse_move_measure_packet,
     try_parse_readbytes_packet,
+    decode_stream_packets_from_bytes,
 )
 from settings import DEFAULTS, counts_to_mm, get_motion_settings
 
@@ -39,6 +40,9 @@ class SerialManager:
         self.total_end = None
         self.streaming_active = False
 
+        self.rs_capture_active = False
+        self.rs_capture_buf = bytearray()
+
     def is_connected(self) -> bool:
         return self.ser is not None and self.ser.is_open
 
@@ -57,6 +61,9 @@ class SerialManager:
             except Exception: pass
         self.ser = None
         self.streaming_active = False
+
+        self.rs_capture_active = False
+        self.rs_capture_buf = bytearray()
 
     def send_cmd(self, cmd: str):
         if not self.is_connected():
@@ -283,6 +290,66 @@ class SerialManager:
 
 
 
+
+    def start_rs_capture(self):
+        """Start byte stream capture using rs; and pause background RX parsing."""
+        if not self.is_connected():
+            return {"ok": False, "error": "Not connected."}
+        if self.streaming_active:
+            return {"ok": False, "error": "Stop current stream first."}
+        if self.rs_capture_active:
+            return {"ok": False, "error": "Capture already active."}
+
+        self.stop_rx_thread()
+        with self.lock:
+            self.ser.reset_input_buffer()
+            self.ser.reset_output_buffer()
+            self.ser.write(b"rs;")
+            self.ser.flush()
+
+        self.rs_capture_buf = bytearray()
+        self.rs_capture_active = True
+        return {"ok": True}
+
+    def poll_rs_capture(self):
+        """Read available serial bytes into rs;/re; capture buffer."""
+        if not self.rs_capture_active or not self.is_connected():
+            return 0
+        with self.lock:
+            waiting = self.ser.in_waiting
+            if waiting:
+                self.rs_capture_buf += self.ser.read(waiting)
+                return waiting
+        return 0
+
+    def stop_rs_capture(self, timeout_s: float = 1.0):
+        """Stop rs;/re; capture, decode all received packets, and resume RX thread."""
+        if not self.rs_capture_active:
+            return {"ok": False, "error": "Capture is not active."}
+
+        try:
+            with self.lock:
+                self.ser.write(b"re;")
+                self.ser.flush()
+
+            t0 = time.time()
+            while time.time() - t0 < timeout_s:
+                got = self.poll_rs_capture()
+                if not got:
+                    time.sleep(0.01)
+
+            decoded = decode_stream_packets_from_bytes(self.rs_capture_buf)
+            return {
+                "ok": True,
+                "raw_bytes": bytes(self.rs_capture_buf),
+                "samples": decoded["samples"],
+                "integration_us": decoded["integration_us"],
+                "samples_count": decoded["total_samples"],
+            }
+        finally:
+            self.rs_capture_active = False
+            self.start_rx_thread()
+
     def readbytes_binary(self, samples_count: int, timeout_s: float = 30.0):
         """
         Run detector read-bytes command using readbytesN; and parse the AA 55 31 packet.
@@ -406,6 +473,7 @@ class SerialManager:
                     if total is not None:
                         self.total_end = total
                         self.streaming_active = False
+
 
                     samples, self.raw_buf = parse_stream_samples_from_buffer(self.raw_buf)
                     for s in samples:
