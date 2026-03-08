@@ -286,6 +286,10 @@ static bool parse3Int32AndU32Comma(const char *s, int32_t &a, int32_t &b, int32_
 unsigned long time_start_streaming = 0;
 unsigned long det_stream_last_us = 0;
 unsigned long det_sample_counter = 0;
+static bool det_human_streaming = false;
+static uint32_t det_human_t0_us = 0;
+static uint32_t det_human_last_us = 0;
+static uint32_t det_human_idx = 0;
 static const uint8_t K_STREAM_HDR0 = 0xA5;
 static const uint8_t K_STREAM_HDR1 = 0x5A;
 
@@ -433,6 +437,43 @@ static void detReadAndPrintHuman(uint32_t N) {
     Serial.print(", ch1=");
     Serial.println(measBuf[j].ch1);
   }
+}
+
+static void detReadAndPrintHumanStart() {
+  digitalWrite(RST_PIN, HIGH);
+  digitalWrite(HOLD_PIN, LOW);
+
+  det_human_t0_us = micros();
+  det_human_last_us = det_human_t0_us;
+  det_human_idx = 0;
+  det_human_streaming = true;
+
+  Serial.println("Detector streaming started (idx, dt_us, ch0, ch1)");
+}
+
+static void detReadAndPrintHumanStop() {
+  det_human_streaming = false;
+  Serial.println("Detector streaming stopped");
+}
+
+static void detReadAndPrintHumanService() {
+  if (!det_human_streaming) return;
+
+  uint32_t now = micros();
+  if ((uint32_t)(now - det_human_last_us) < (uint32_t)integraltimemicros) return;
+
+  detReadOnce();
+  now = micros();
+  det_human_last_us = now;
+
+  Serial.print(det_human_idx);
+  Serial.print(", ");
+  Serial.print((uint32_t)(now - det_human_t0_us));
+  Serial.print(", ");
+  Serial.print(det_ch0);
+  Serial.print(", ");
+  Serial.println(det_ch1);
+  det_human_idx++;
 }
 
 static void detReadAndSendBytes(uint32_t N) {
@@ -586,7 +627,7 @@ void setup() {
 void loop() {
   char cmd[48];
 
-  //detStreamService();
+  detReadAndPrintHumanService();
 
   if (!readCmd(cmd, sizeof(cmd))) return;
   if (cmd[0] == 0) return;
@@ -682,6 +723,17 @@ void loop() {
     }
 
     detReadAndSendBytes(N);
+    return;
+  }
+
+  //-----continuous read and print detector values: start; ... stop;
+  if (strcmp(cmd, "start") == 0) {
+    detReadAndPrintHumanStart();
+    return;
+  }
+
+  if (strcmp(cmd, "stop") == 0) {
+    detReadAndPrintHumanStop();
     return;
   }
 
