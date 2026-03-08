@@ -52,6 +52,14 @@ static volatile uint32_t STEP_GAP_US   = 800; // STEP low time
 // PCNT 32-bit extensions settings
 //===============================================================================
 static const int16_t PCNT_LIMIT = 30000;
+static const float PCNT32_COUNTS_PER_STEP = 0.0625f;
+
+static volatile int32_t limmaxpcnt32x = 15000;
+static volatile int32_t limminpcnt32x = -15000;
+static volatile int32_t limmaxpcnt32y = 15000;
+static volatile int32_t limminpcnt32y = -15000;
+static volatile int32_t limmaxpcnt32z = 15000;
+static volatile int32_t limminpcnt32z = -15000;
 
 //==========================================================
 // PCNT 32-bit helper struct (software extension)
@@ -251,6 +259,102 @@ static void moveYZCoupledSteps(int32_t steps) {
   for (uint32_t i = 0; i < n; i++) {
     stepPulse2(Y_STEP, Z_STEP);
   }
+}
+
+static bool inLimitRange(double value, int32_t limMin, int32_t limMax) {
+  return value >= (double)limMin && value <= (double)limMax;
+}
+
+static double stepsToPcnt32Delta(int32_t steps) {
+  return (double)steps * (double)PCNT32_COUNTS_PER_STEP;
+}
+
+static bool checkSingleAxisMoveLimit(char axis, int32_t steps) {
+  int32_t current = 0;
+  int32_t limMin = 0;
+  int32_t limMax = 0;
+
+  switch (axis) {
+    case 'x':
+      current = pcntRead32(pcX);
+      limMin = limminpcnt32x;
+      limMax = limmaxpcnt32x;
+      break;
+    case 'y':
+      current = yCoord();
+      limMin = limminpcnt32y;
+      limMax = limmaxpcnt32y;
+      break;
+    case 'z':
+      current = pcntRead32(pcZ);
+      limMin = limminpcnt32z;
+      limMax = limmaxpcnt32z;
+      break;
+    default:
+      return false;
+  }
+
+  double delta = stepsToPcnt32Delta(steps);
+  double projected = (double)current + delta;
+
+  if (!inLimitRange(projected, limMin, limMax)) {
+    Serial.print("Movement blocked on axis ");
+    Serial.print(axis);
+    Serial.println(": projected pcnt32 value will surpass configured limits.");
+    Serial.print("Current pcnt32: ");
+    Serial.println(current);
+    Serial.print("Requested steps: ");
+    Serial.println(steps);
+    Serial.print("Projected pcnt32: ");
+    Serial.println(projected, 4);
+    Serial.print("Allowed range: [");
+    Serial.print(limMin);
+    Serial.print(", ");
+    Serial.print(limMax);
+    Serial.println("]");
+    return false;
+  }
+
+  return true;
+}
+
+static bool checkCoupledYZMoveLimit(int32_t steps) {
+  int32_t currentY = yCoord();
+  int32_t currentZ = pcntRead32(pcZ);
+  double delta = stepsToPcnt32Delta(steps);
+
+  double projectedY = (double)currentY + delta;
+  double projectedZ = (double)currentZ + delta;
+
+  bool yOk = inLimitRange(projectedY, limminpcnt32y, limmaxpcnt32y);
+  bool zOk = inLimitRange(projectedZ, limminpcnt32z, limmaxpcnt32z);
+  if (yOk && zOk) return true;
+
+  Serial.println("Movement blocked: coupled Y+Z command will surpass configured pcnt32 limits.");
+  if (!yOk) {
+    Serial.print("Y current/projected/range: ");
+    Serial.print(currentY);
+    Serial.print(" -> ");
+    Serial.print(projectedY, 4);
+    Serial.print(" in [");
+    Serial.print(limminpcnt32y);
+    Serial.print(", ");
+    Serial.print(limmaxpcnt32y);
+    Serial.println("]");
+  }
+  if (!zOk) {
+    Serial.print("Z current/projected/range: ");
+    Serial.print(currentZ);
+    Serial.print(" -> ");
+    Serial.print(projectedZ, 4);
+    Serial.print(" in [");
+    Serial.print(limminpcnt32z);
+    Serial.print(", ");
+    Serial.print(limmaxpcnt32z);
+    Serial.println("]");
+  }
+
+  return false;
 }
 
 
@@ -812,6 +916,10 @@ void loop() {
   //============================================================
   if (cmd[0] == 'Z') {
   int32_t n = (int32_t)strtol(cmd + 1, nullptr, 10);
+  if (!checkCoupledYZMoveLimit(n)) {
+    return;
+  }
+
   sendAck('Z');
 
   int32_t y_before = pcntRead32(pcY);
@@ -829,6 +937,10 @@ void loop() {
   char a = (char)tolower(cmd[0]);
   if (a == 'x' || a == 'y' || a == 'z') {
     int32_t n = (int32_t)strtol(cmd + 1, nullptr, 10);
+    if (!checkSingleAxisMoveLimit(a, n)) {
+      return;
+    }
+
     sendAck((uint8_t)a);
 
     moveAxisSteps(a, n);
