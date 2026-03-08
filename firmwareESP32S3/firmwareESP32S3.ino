@@ -613,22 +613,6 @@ static void detStreamService() {
   }
 }
 
-//===========================================================
-// Set Pot value manually
-//===========================================================
-static const int CS_POT = 36;
-
-void setpot(int value){
-  SPI.beginTransaction(SPISettings(7000000, MSBFIRST, SPI_MODE0));
-  //set the pot
-  digitalWrite(CS_POT, LOW);
-  SPI.transfer(0x1);
-  SPI.transfer16(value << 6);
-  digitalWrite(CS_POT, HIGH);
-  SPI.endTransaction();
-
-}
-
 
 //============================================================
 // Arduino setup/loop
