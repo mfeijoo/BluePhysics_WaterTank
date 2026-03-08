@@ -1017,19 +1017,25 @@ void loop() {
     return;
   }
 
+  //-----print device model and firmware version in human-readable text
+  if (strcmp(cmd, "info") == 0) {
+    printDeviceInfoHuman();
+    return;
+  }
+
   //-----set integration time: i700;
   if (cmd[0] == 'i') {
-    uint32_t v = (uint32_t)strtoul(cmd + 1, nullptr, 10);
+    char *end = nullptr;
+    uint32_t v = (uint32_t)strtoul(cmd + 1, &end, 10);
+    if (end == cmd + 1 || *end != 0) {
+      sendErr('i', 0x01);
+      return;
+    }
+
     if (v < 50) v = 50;          // simple guard
     if (v > 50000) v = 50000;    // simple guard
     integraltimemicros = v;
     sendAck('i');
-    return;
-  }
-
-  //-----print device model and firmware version in human-readable text
-  if (strcmp(cmd, "info") == 0) {
-    printDeviceInfoHuman();
     return;
   }
 
