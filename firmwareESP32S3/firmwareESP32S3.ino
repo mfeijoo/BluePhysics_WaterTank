@@ -542,6 +542,46 @@ static void detReadAndPrintHuman(uint32_t N) {
   }
 }
 
+static void detReadAndSendBytes(uint32_t N) {
+  if (N == 0) {
+    sendErr('r', 0x01);
+    return;
+  }
+
+  if (N > MEAS_MAX_SAMPLES) {
+    N = MEAS_MAX_SAMPLES;
+  }
+
+  digitalWrite(RST_PIN, HIGH);
+  digitalWrite(HOLD_PIN, LOW);
+
+  uint32_t t0 = micros();
+  uint32_t starttime = t0;
+  uint32_t i = 0;
+  while (i < N) {
+    if ((uint32_t)(micros() - starttime) >= (uint32_t)integraltimemicros) {
+      detReadOnce();
+      uint32_t now = micros();
+      starttime = now;
+
+      measBuf[i].idx = i;
+      measBuf[i].dt_us = (uint32_t)(now - t0);
+      measBuf[i].ch0 = det_ch0;
+      measBuf[i].ch1 = det_ch1;
+      i++;
+    }
+  }
+
+  sendAck('r');
+  sendPktHeader(0x31);
+  Serial.write((uint8_t*)&N, 4);
+
+  uint32_t integ = (uint32_t)integraltimemicros;
+  Serial.write((uint8_t*)&integ, 4);
+
+  Serial.write((uint8_t*)measBuf, N * sizeof(Sample));
+}
+
 static void detMeasureAndSendBinaryWithCoords(uint32_t N, int32_t x_end, int32_t y_end, int32_t z_end) {
   if (N == 0) N = 1;
   if (N > MEAS_MAX_SAMPLES) N = MEAS_MAX_SAMPLES;
@@ -935,6 +975,19 @@ void loop() {
     STEP_PULSE_US = (uint32_t)p;
     STEP_GAP_US = (uint32_t)g;
     sendAck('T');
+    return;
+  }
+
+  //-----read detector values and send bytes: readbytesN; e.g. readbytes100;
+  if (strncmp(cmd, "readbytes", 9) == 0) {
+    char *end = nullptr;
+    uint32_t N = (uint32_t)strtoul(cmd + 9, &end, 10);
+    if (end == cmd + 9 || *end != 0) {
+      sendErr('r', 0x02);
+      return;
+    }
+
+    detReadAndSendBytes(N);
     return;
   }
 
