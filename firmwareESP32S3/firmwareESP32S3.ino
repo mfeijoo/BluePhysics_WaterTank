@@ -1057,6 +1057,40 @@ void loop() {
   }
 
   //============================================================
+  // Unlimited independent/coupled move (no limit checks):
+  // "ux200" "uy-50" "uz1000" "uZ300"
+  //============================================================
+  if (cmd[0] == 'u') {
+    char axis = cmd[1];
+    if (!(axis == 'x' || axis == 'y' || axis == 'z' || axis == 'Z')) {
+      sendErr('u', 0x01);
+      return;
+    }
+
+    char *end = nullptr;
+    long nLong = strtol(cmd + 2, &end, 10);
+    if (end == cmd + 2 || *end != 0) {
+      sendErr('u', 0x01);
+      return;
+    }
+
+    int32_t n = (int32_t)nLong;
+    sendAck('u');
+
+    if (axis == 'Z') {
+      int32_t y_before = pcntRead32(pcY);
+      moveYZCoupledSteps(n);
+      int32_t y_after = pcntRead32(pcY);
+      y_offset -= (y_after - y_before);
+    } else {
+      moveAxisSteps(axis, n);
+    }
+
+    sendCoordsPacket(0x21);
+    return;
+  }
+
+  //============================================================
   // Coupled move: "Z200" or "Z-50"
   // TRUE step-by-step coupling Y+Z
   //============================================================

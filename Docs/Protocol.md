@@ -65,6 +65,15 @@ The system supports the following operations (firmware + app):
 - Error frame `AA 55 11 63 01` indicates malformed command
 - Error frame `AA 55 11 63 02` indicates invalid range (`min >= max`)
 
+
+## 13. Unlimited Direct Step Move (No Limit Checks)
+- Send `u<axis><steps>;` over serial
+- Supported axes: `x`, `y`, `z`, `Z`
+- Examples: `ux200;`, `uy-50;`, `uz1000;`, `uZ300;`
+- Firmware replies with ACK frame `AA 55 10 75` and move-done coordinates frame `AA 55 21`
+- This command intentionally bypasses configured axis limits
+- Error frame `AA 55 11 75 01` indicates malformed command or unsupported axis
+
 ---
 
 # Measurement Timing
@@ -82,7 +91,7 @@ Streaming mode is non-blocking and designed to prevent firmware RAM overflow.
 # Design Principles
 
 - Deterministic firmware
-- Binary-first communication with explicit human-debug commands (`P;`, `L;`, `start;`, `stop;`) and configurable axis-limit command (`lc...;`)
+- Binary-first communication with explicit human-debug commands (`P;`, `L;`, `start;`, `stop;`), configurable axis-limit command (`lc...;`), and explicit unlimited step move command (`u...;`)
 - Limit-check failures are emitted as binary error packets (`AA 55 11 <cmd_id> 03`)
 - Clear separation of firmware and UI logic
 - Hardware abstraction ready

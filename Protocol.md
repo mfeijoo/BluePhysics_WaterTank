@@ -24,7 +24,8 @@ ASCII command string terminated by semicolon:
 - `M10,25.5,-3;`
 - `S10,25.5,-3;`
 - `Q10,25.5,-3,2000;`
-- `x200;`, `y-50;`, `z1000;`, `Y300;`
+- `x200;`, `y-50;`, `z1000;`, `Z300;`
+- `ux200;`, `uy-50;`, `uz1000;`, `uZ300;`
 
 ---
 
@@ -273,11 +274,45 @@ Error responses:
 
 ---
 
+
+## 7.3) Unlimited direct step move command (`u<axis><steps>;`)
+
+Move one axis (or coupled `Z`) by signed step count **without** limit checks:
+
+```text
+ux<steps>;
+uy<steps>;
+uz<steps>;
+uZ<steps>;
+```
+
+Examples:
+
+```text
+ux200;
+uy-50;
+uz1000;
+uZ300;
+```
+
+Firmware response:
+
+```text
+AA 55 10 75
+AA 55 21
+<int32 x_cnt><int32 y_cnt><int32 z_cnt>
+```
+
+- `75` is ASCII `'u'` in the ACK packet.
+- `uZ...;` uses the same true coupled Y+Z step behavior as `Z...;` and applies the same Y logical-coordinate offset compensation used by limited coupled moves.
+- Malformed `u` commands return `AA 55 11 75 01`.
+
 ## 8) Binary parser rules
 
 1. For machine parsing, use binary-response commands (for coordinates use `p;`, for limits use `l;`, not `P;`/`L;`).
 2. Limit-check failures for `x...;`, `y...;`, `z...;`, `Z...;`, and `M...;` are binary `0x11` error packets (no human-readable `Serial.print` diagnostics).
-3. `lc...;` returns `ERR 0x01` on malformed syntax and `ERR 0x02` when any axis has `min >= max`.
-4. Do not send `tb;` or `th;`.
-5. Keep parser resynchronization logic based on packet headers (`AA55`, `ABCD`, `ADEF`).
-6. Ignore human-readable text lines when using debug commands (`P;`, `start;`, `stop;`).
+3. `u...;` bypasses axis-limit checks by design and still returns ACK + `0x21` move-done coordinates.
+4. `lc...;` returns `ERR 0x01` on malformed syntax and `ERR 0x02` when any axis has `min >= max`.
+5. Do not send `tb;` or `th;`.
+6. Keep parser resynchronization logic based on packet headers (`AA55`, `ABCD`, `ADEF`).
+7. Ignore human-readable text lines when using debug commands (`P;`, `start;`, `stop;`).
