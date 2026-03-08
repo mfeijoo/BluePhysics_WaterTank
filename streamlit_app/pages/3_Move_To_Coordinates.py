@@ -23,10 +23,15 @@ st.caption(f"Converted targets in steps -> X:{sx}, Y:{sy}, Z:{sz}")
 c1, c2 = st.columns(2)
 with c1:
     if st.button("Move M (sequential)", use_container_width=True, disabled=disabled):
-        mgr.send_cmd(f"M{sx},{sy},{sz}")
-        res = mgr.get_coords_packet(st.session_state)
-        st.session_state.coords = res
-        st.code(res.get("line", "—"))
+        with st.spinner("Moving to target coordinates..."):
+            res = mgr.move_and_wait_coords(f"M{sx},{sy},{sz}", st.session_state)
+
+        if res.get("ok"):
+            st.session_state.coords = res
+            st.success("Move completed.")
+            st.code(res["line"])
+        else:
+            st.error(res.get("error", "Move failed"))
 
 c3, c4 = st.columns(2)
 with c3:
