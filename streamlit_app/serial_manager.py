@@ -66,6 +66,66 @@ class SerialManager:
             self.ser.write(cmd.encode("ascii"))
             self.ser.flush()
 
+    def move_and_wait_coords(self, move_cmd: str, state=None, timeout_s: float = 15.0):
+        """
+        Send a motor move command and block until the firmware emits the coords packet:
+          AA 55 20 + i32 x + i32 y + i32 z
+
+        This should be used for manual motor moves so the UI only continues once movement
+        has completed on firmware side.
+        """
+        if self.streaming_active:
+            return {"ok": False, "error": "Stop streaming first."}
+        if not self.is_connected():
+            return {"ok": False, "error": "Not connected."}
+
+        cmd = (move_cmd or "").strip()
+        if not cmd:
+            return {"ok": False, "error": "Empty move command."}
+        if not cmd.endswith(";"):
+            cmd += ";"
+
+        self.stop_rx_thread()
+        try:
+            with self.lock:
+                self.ser.reset_input_buffer()
+                self.ser.reset_output_buffer()
+                self.ser.write(cmd.encode("ascii"))
+                self.ser.flush()
+
+            t0 = time.time()
+            buf = bytearray()
+
+            while time.time() - t0 < timeout_s:
+                with self.lock:
+                    n = self.ser.in_waiting
+                    if n:
+                        buf += self.ser.read(n)
+
+                j = buf.find(b"\xAA\x55\x20")
+                if j >= 0 and len(buf) >= j + 15:
+                    x_cnt, y_cnt, z_cnt = struct.unpack_from("<iii", buf, j + 3)
+                    cfg = get_motion_settings(state) if state is not None else DEFAULTS
+                    x = counts_to_mm(cfg, "x", x_cnt)
+                    y = counts_to_mm(cfg, "y", y_cnt)
+                    z = counts_to_mm(cfg, "z", z_cnt)
+                    return {
+                        "ok": True,
+                        "line": f"X mm: {x:.3f}, Y mm: {y:.3f}, Z mm: {z:.3f}",
+                        "x": float(x),
+                        "y": float(y),
+                        "z": float(z),
+                        "x_cnt": int(x_cnt),
+                        "y_cnt": int(y_cnt),
+                        "z_cnt": int(z_cnt),
+                    }
+
+                time.sleep(0.01)
+
+            return {"ok": False, "error": "Timeout waiting for move completion coords packet."}
+        finally:
+            self.start_rx_thread()
+
     def get_coords_packet(self, state=None):
         """
         Fetch coords from firmware command P; as binary packet:

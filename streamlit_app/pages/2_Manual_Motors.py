@@ -10,8 +10,15 @@ axis = st.selectbox("Axis command", ["x", "y", "z", "Y"])
 steps = st.number_input("Steps (can be negative)", value=200, step=10)
 
 if st.button("Send move", use_container_width=True, disabled=disabled):
-    mgr.send_cmd(f"{axis}{int(steps)}")
-    st.success(f"Sent {axis}{int(steps)};")
+    with st.spinner("Moving motor(s)..."):
+        res = mgr.move_and_wait_coords(f"{axis}{int(steps)}", st.session_state)
+
+    if res.get("ok"):
+        st.session_state.coords = res
+        st.success(f"Move finished: {axis}{int(steps)};")
+        st.code(res["line"])
+    else:
+        st.error(res.get("error", "Move failed"))
 
 if st.button("Read coords (P;)", use_container_width=True, disabled=disabled):
     res = mgr.get_coords_packet(st.session_state)
