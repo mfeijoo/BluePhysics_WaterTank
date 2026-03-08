@@ -52,8 +52,6 @@ static volatile uint32_t STEP_GAP_US   = 800; // STEP low time
 // PCNT 32-bit extensions settings
 //===============================================================================
 static const int16_t PCNT_LIMIT = 30000;
-static const float PCNT32_COUNTS_PER_STEP = 0.0625f;
-
 static volatile int32_t limmaxpcnt32x = 15000;
 static volatile int32_t limminpcnt32x = -15000;
 static volatile int32_t limmaxpcnt32y = 15000;
@@ -86,6 +84,9 @@ static volatile int32_t y_offset = 0;
 static const double STEPS_PER_REV      = 200.0;
 static const double ENC_COUNTS_PER_REV = 400.0;
 static const double COUNTS_PER_STEP    = ENC_COUNTS_PER_REV / STEPS_PER_REV;
+
+// Error output mode: false = binary packets only, true = human-readable Serial text.
+static bool error_messages_human = false;
 
 //===============================================================================
 // =================== DETECTOR / SPI SETTINGS ===================
@@ -266,7 +267,7 @@ static bool inLimitRange(double value, int32_t limMin, int32_t limMax) {
 }
 
 static double stepsToPcnt32Delta(int32_t steps) {
-  return (double)steps * (double)PCNT32_COUNTS_PER_STEP;
+  return (double)steps * COUNTS_PER_STEP;
 }
 
 static void sendErr(uint8_t cmd_id, uint8_t err_code);
@@ -466,6 +467,14 @@ static void sendAck(uint8_t cmd_id) {
 }
 
 static void sendErr(uint8_t cmd_id, uint8_t err_code) {
+  if (error_messages_human) {
+    Serial.print("ERR cmd=");
+    Serial.print((char)cmd_id);
+    Serial.print(" code=");
+    Serial.println((int)err_code);
+    return;
+  }
+
   sendPktHeader(0x11);
   Serial.write(cmd_id);
   Serial.write(err_code);
@@ -936,6 +945,17 @@ void loop() {
     if (v > 50000) v = 50000;    // simple guard
     integraltimemicros = v;
     sendAck('i');
+    return;
+  }
+
+  //-----toggle error mode: eh0 (binary), eh1 (human-readable)
+  if (cmd[0] == 'e' && cmd[1] == 'h' && (cmd[2] == '0' || cmd[2] == '1') && cmd[3] == 0) {
+    error_messages_human = (cmd[2] == '1');
+    if (error_messages_human) {
+      Serial.println("Error output mode: human-readable");
+    } else {
+      sendAck('h');
+    }
     return;
   }
 
