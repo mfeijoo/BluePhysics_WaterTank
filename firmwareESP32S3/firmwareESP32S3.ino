@@ -357,6 +357,24 @@ static bool checkCoupledYZMoveLimit(int32_t steps) {
   return false;
 }
 
+static bool moveXYZSequentialStepsWithLimitCheck(int32_t xSteps, int32_t ySteps, int32_t zSteps) {
+  bool xOk = checkSingleAxisMoveLimit('x', xSteps);
+  bool yOk = checkSingleAxisMoveLimit('y', ySteps);
+  bool zOk = checkSingleAxisMoveLimit('z', zSteps);
+
+  if (!xOk || !yOk || !zOk) {
+    Serial.println("Movement blocked: XYZ sequential command would surpass configured pcnt32 limits.");
+    return false;
+  }
+
+  moveAxisSteps('x', xSteps);
+  moveAxisSteps('y', ySteps);
+  moveAxisSteps('z', zSteps);
+
+  sendCoordsPacket(0x21);
+  return true;
+}
+
 
 //============================================================
 // Serial helpers
@@ -907,6 +925,48 @@ void loop() {
     }
 
     detReadAndPrintHuman(N);
+    return;
+  }
+
+  //============================================================
+  // XYZ sequential move in steps: "M<x>,<y>,<z>"
+  // Moves one motor at a time in this order: X -> Y -> Z
+  //============================================================
+  if (cmd[0] == 'M') {
+    char *p = cmd + 1;
+    char *end = nullptr;
+
+    long xStepsL = strtol(p, &end, 10);
+    if (end == p || *end != ',') {
+      sendErr('M', 0x01);
+      Serial.println("Error: malformed M command. Use M<x_steps>,<y_steps>,<z_steps>;");
+      return;
+    }
+
+    p = end + 1;
+    long yStepsL = strtol(p, &end, 10);
+    if (end == p || *end != ',') {
+      sendErr('M', 0x01);
+      Serial.println("Error: malformed M command. Use M<x_steps>,<y_steps>,<z_steps>;");
+      return;
+    }
+
+    p = end + 1;
+    long zStepsL = strtol(p, &end, 10);
+    if (end == p || *end != 0) {
+      sendErr('M', 0x01);
+      Serial.println("Error: malformed M command. Use M<x_steps>,<y_steps>,<z_steps>;");
+      return;
+    }
+
+    int32_t xSteps = (int32_t)xStepsL;
+    int32_t ySteps = (int32_t)yStepsL;
+    int32_t zSteps = (int32_t)zStepsL;
+
+    if (!moveXYZSequentialStepsWithLimitCheck(xSteps, ySteps, zSteps)) {
+      return;
+    }
+
     return;
   }
 
