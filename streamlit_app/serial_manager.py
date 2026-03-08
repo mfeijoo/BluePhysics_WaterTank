@@ -67,8 +67,8 @@ class SerialManager:
 
     def move_and_wait_coords(self, move_cmd: str, state=None, timeout_s: float = 15.0):
         """
-        Send a motor move command and block until the firmware emits the coords packet:
-          AA 55 20 + i32 x + i32 y + i32 z
+        Send a motor move command and block until the firmware emits a coords packet:
+          AA 55 21 or AA 55 22 (and legacy AA 55 20) + i32 x + i32 y + i32 z
 
         This should be used for manual motor moves so the UI only continues once movement
         has completed on firmware side.
@@ -98,9 +98,13 @@ class SerialManager:
                     if n:
                         buf += self.ser.read(n)
 
-                j = buf.find(b"\xAA\x55\x20")
-                if j >= 0 and len(buf) >= j + 15:
-                    x_cnt, y_cnt, z_cnt = struct.unpack_from("<iii", buf, j + 3)
+                packet_start = -1
+                for packet_type in (0x21, 0x22, 0x20):
+                    j = buf.find(bytes((0xAA, 0x55, packet_type)))
+                    if j >= 0:
+                        packet_start = j if packet_start < 0 else min(packet_start, j)
+                if packet_start >= 0 and len(buf) >= packet_start + 15:
+                    x_cnt, y_cnt, z_cnt = struct.unpack_from("<iii", buf, packet_start + 3)
                     cfg = get_motion_settings(state) if state is not None else DEFAULTS
                     x = counts_to_mm(cfg, "x", x_cnt)
                     y = counts_to_mm(cfg, "y", y_cnt)
