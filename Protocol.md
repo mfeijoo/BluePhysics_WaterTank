@@ -17,6 +17,9 @@ ASCII command string terminated by semicolon:
 - `P;`
 - `L;`
 - `l;`
+- `D;`
+- `d;`
+- `stepdelays800,800;`
 - `b;`
 - `i700;`
 - `m2000;`
@@ -243,6 +246,58 @@ AA 55 23
 
 - `6C` is ASCII `'l'` in the ACK packet.
 - `0x23` payload is little-endian and contains min/max bounds for each axis.
+
+
+## 7.3) Step delay commands (`D;`, `d;`, `stepdelays...;`)
+
+Human-readable step timing values:
+
+```text
+D;
+```
+
+Firmware prints:
+
+```text
+STEP_PULSE_US: <uint32>
+STEP_GAP_US: <uint32>
+```
+
+Binary packet command:
+
+```text
+d;
+```
+
+Firmware sends:
+
+```text
+AA 55 10 64
+AA 55 24
+<uint32 step_pulse_us>
+<uint32 step_gap_us>
+```
+
+- `64` is ASCII `'d'` in the ACK packet.
+- Both values are little-endian microseconds.
+
+Set command:
+
+```text
+stepdelays<pulse_us>,<gap_us>;
+```
+
+Example:
+
+```text
+stepdelays800,800;
+```
+
+- Accepts integer microseconds in range `[1, 1000000]` for each value.
+- On success, firmware sends ACK + updated `0x24` packet.
+- On malformed payload, firmware sends `ERR cmd='d' code=0x01`.
+- On out-of-range values, firmware sends `ERR cmd='d' code=0x02`.
+
 
 ## 7.2) Set pcnt32 limits command (`lc...;`)
 
