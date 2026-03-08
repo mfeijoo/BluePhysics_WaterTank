@@ -243,12 +243,41 @@ AA 55 23
 - `6C` is ASCII `'l'` in the ACK packet.
 - `0x23` payload is little-endian and contains min/max bounds for each axis.
 
+## 7.2) Set pcnt32 limits command (`lc...;`)
+
+Set all axis limits in one command:
+
+```text
+lc<x_min>,<x_max>,<y_min>,<y_max>,<z_min>,<z_max>;
+```
+
+Example:
+
+```text
+lc-10000,10000,-9000,9000,-8000,8000;
+```
+
+Firmware response:
+
+```text
+AA 55 10 63
+AA 55 23
+<int32 x_min><int32 x_max>
+<int32 y_min><int32 y_max>
+<int32 z_min><int32 z_max>
+```
+
+Error responses:
+- `AA 55 11 63 01` malformed command.
+- `AA 55 11 63 02` invalid ranges (`min >= max` for any axis).
+
 ---
 
 ## 8) Binary parser rules
 
 1. For machine parsing, use binary-response commands (for coordinates use `p;`, for limits use `l;`, not `P;`/`L;`).
 2. Limit-check failures for `x...;`, `y...;`, `z...;`, `Z...;`, and `M...;` are binary `0x11` error packets (no human-readable `Serial.print` diagnostics).
-3. Do not send `tb;` or `th;`.
-4. Keep parser resynchronization logic based on packet headers (`AA55`, `ABCD`, `ADEF`).
-5. Ignore human-readable text lines when using debug commands (`P;`, `start;`, `stop;`).
+3. `lc...;` returns `ERR 0x01` on malformed syntax and `ERR 0x02` when any axis has `min >= max`.
+4. Do not send `tb;` or `th;`.
+5. Keep parser resynchronization logic based on packet headers (`AA55`, `ABCD`, `ADEF`).
+6. Ignore human-readable text lines when using debug commands (`P;`, `start;`, `stop;`).
