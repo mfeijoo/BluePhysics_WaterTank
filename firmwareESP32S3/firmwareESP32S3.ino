@@ -4,14 +4,18 @@
 #include <math.h>
 #include <SPI.h>
 #include "Adafruit_MCP9808.h"
+#include <ADS1115_WE.h> //we are using the chip ADS1115 and this library to read that chip
 
 //=======================================
 //Temperature create objects
 //=======================================
 
 Adafruit_MCP9808 tempsensor = Adafruit_MCP9808();
+ADS1115_WE adc(0x48);
 
 unsigned int tempbytes;
+int16_t adc0 = 0;
+float adc0V = 0.0000;
 
 
 // =================== STEPPER PINS ===================
@@ -613,6 +617,15 @@ static void detStreamService() {
   }
 }
 
+static float readPS0Voltage() {
+  adc.setCompareChannels(ADS1115_COMP_0_GND);
+  adc.startSingleMeasurement();
+  delay(500); //I am not sure what is the minimum time we need to wait until ADS1115 is ready to get the result
+  adc0 = adc.getRawResult();
+  adc0V = adc.getResult_V();
+  return adc0V;
+}
+
 
 //============================================================
 // Arduino setup/loop
@@ -663,8 +676,42 @@ void setup() {
   SPI.transfer(0x06 << 1 | 1);
   SPI.transfer16(0x0000);
   digitalWrite(CS_ADQ, HIGH);
+  //ch2
+  digitalWrite(CS_ADQ, LOW);
+  SPI.transfer(0x07 << 1 | 1);
+  SPI.transfer16(0x0000);
+  digitalWrite(CS_ADQ, HIGH);
+  //ch3
+  digitalWrite(CS_ADQ, LOW);
+  SPI.transfer(0x08 << 1 | 1);
+  SPI.transfer16(0x0000);
+  digitalWrite(CS_ADQ, HIGH);
+  //ch4
+  digitalWrite(CS_ADQ, LOW);
+  SPI.transfer(0x09 << 1 | 1);
+  SPI.transfer16(0x0000);
+  digitalWrite(CS_ADQ, HIGH);
+  //ch5
+  digitalWrite(CS_ADQ, LOW);
+  SPI.transfer(0x0A << 1 | 1);
+  SPI.transfer16(0x0000);
+  digitalWrite(CS_ADQ, HIGH);
+  //ch6
+  digitalWrite(CS_ADQ, LOW);
+  SPI.transfer(0x0B << 1 | 1);
+  SPI.transfer16(0x0000);
+  digitalWrite(CS_ADQ, HIGH);
+  //ch7
+  digitalWrite(CS_ADQ, LOW);
+  SPI.transfer(0x0C << 1 | 1);
+  SPI.transfer16(0x0000);
+  digitalWrite(CS_ADQ, HIGH);
 
   SPI.endTransaction();
+
+  adc.init();
+  adc.setConvRate(ADS1115_860_SPS);
+  adc.setVoltageRange_mV(ADS1115_RANGE_6144);
 
   //Temperature sensor setup
   tempsensor.begin(0x18);
@@ -764,6 +811,15 @@ void loop() {
   sendCoordsPacket(0x22);
   return;
 }
+
+  // read power supply PS0 (send: ps0;)
+  if (cmd[0] == 'p' && cmd[1] == 's' && cmd[2] == '0' && cmd[3] == 0) {
+    float ps0Voltage = readPS0Voltage();
+    Serial.print("PS0 voltage: ");
+    Serial.print(ps0Voltage, 4);
+    Serial.println(" V");
+    return;
+  }
 
   //-----coords packet
   if (cmd[0] == 'p' && cmd[1] == 0) {
