@@ -278,52 +278,65 @@ class SerialManager:
     def read_temperature_bytes(self, timeout_s: float = 2.0):
         """
         Request temperature bytes using t; and parse firmware framing:
-          [optional ACK: AA 55 10 <cmd_id>] + [temp: AA 55 <u16 raw>]
+          ACK : AA 55 10 <cmd_id>
+          TEMP: AA 55 <u16 raw>
         """
 
-        try:
-            if not self.is_connected():
-                return {"ok": False, "error": "Not connected."}
+        if not self.is_connected():
+            return {"ok": False, "error": "Not connected."}
 
+        with self.lock:
+            self.ser.reset_input_buffer()
+            self.ser.write(b"t;")
+            self.ser.flush()
+
+        t0 = time.time()
+        buf = bytearray()
+
+        while time.time() - t0 < timeout_s:
             with self.lock:
-                self.ser.reset_input_buffer()
-                self.ser.reset_output_buffer()
-                self.ser.write(b"t;")
-                self.ser.flush()
+                n = self.ser.in_waiting
+                if n:
+                    buf += self.ser.read(n)
 
-            t0 = time.time()
-            buf = bytearray()
-
-            while time.time() - t0 < timeout_s:
-                with self.lock:
-                    n = self.ser.in_waiting
-                    if n:
-                        buf += self.ser.read(n)
-
-                # Resynchronize on AA 55 header so leading noise / text output
-                # does not corrupt binary temperature decoding.
+            # Parse as many complete frames as are already in buf
+            while True:
                 j = buf.find(b"\xAA\x55")
                 if j < 0:
-                    # Keep only possible partial header prefix.
+                    # Keep only possible partial header
                     if len(buf) > 1:
                         buf = bytearray([buf[-1]]) if buf[-1] == 0xAA else bytearray()
-                else:
-                    if j > 0:
-                        del buf[:j]
+                    break
 
-                    if len(buf) >= 4:
-                        # Optional ACK packet from sendAck('t'): AA 55 10 <cmd_id>
-                        if buf[2] == 0x10:
-                            del buf[:4]
-                        else:
-                            raw, = struct.unpack_from("<H", buf, 2)
-                            return {"ok": True, "raw": int(raw)}
+                if j > 0:
+                    del buf[:j]
 
-                time.sleep(0.005)
+                # Need at least 4 bytes for either ACK or TEMP frame
+                if len(buf) < 4:
+                    break
 
-            return {"ok": False, "error": "Timeout waiting for temperature bytes."}
-        finally:
-            pass
+                # ACK frame: AA 55 10 <cmd_id>
+                if buf[2] == 0x10:
+                    cmd_id = buf[3]
+                    del buf[:4]
+
+                    # Optional sanity check
+                    if cmd_id != ord('t'):
+                        continue
+
+                    # Important: continue parsing immediately, because
+                    # the temp frame may already be in the buffer
+                    continue
+
+                # Temperature frame: AA 55 <u16 raw>
+                raw, = struct.unpack_from("<H", buf, 2)
+                del buf[:4]
+                return {"ok": True, "raw": int(raw)}
+
+            time.sleep(0.005)
+
+        return {"ok": False, "error": "Timeout waiting for temperature bytes."}
+
 
     def set_step_timing(self, pulse_us: int, gap_us: int):
         if not self.is_connected():
