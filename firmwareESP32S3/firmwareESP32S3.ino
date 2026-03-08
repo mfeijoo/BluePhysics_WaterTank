@@ -254,30 +254,6 @@ static void moveYZCoupledSteps(int32_t steps) {
 }
 
 
-static bool parse3Int32Comma(const char *s, int32_t &a, int32_t &b, int32_t &c) {
-  char *end = nullptr;
-  long va = strtol(s, &end, 10);
-  if (end == s || *end != ',') return false;
-  long vb = strtol(end + 1, &end, 10);
-  if (*end != ',') return false;
-  long vc = strtol(end + 1, &end, 10);
-  a = (int32_t)va; b = (int32_t)vb; c = (int32_t)vc;
-  return true;
-}
-
-static bool parse3Int32AndU32Comma(const char *s, int32_t &a, int32_t &b, int32_t &c, uint32_t &n) {
-  char *end = nullptr;
-  long va = strtol(s, &end, 10);
-  if (end == s || *end != ',') return false;
-  long vb = strtol(end + 1, &end, 10);
-  if (*end != ',') return false;
-  long vc = strtol(end + 1, &end, 10);
-  if (*end != ',') return false;
-  unsigned long vn = strtoul(end + 1, &end, 10);
-  a = (int32_t)va; b = (int32_t)vb; c = (int32_t)vc; n = (uint32_t)vn;
-  return true;
-}
-
 //============================================================
 // Serial helpers
 //============================================================
