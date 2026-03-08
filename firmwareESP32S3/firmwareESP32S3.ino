@@ -667,12 +667,15 @@ void loop() {
 
   //measure temperature manually
   if (cmd[0] == 't') {
+    sendAck('t');
     //Serial.println("Measuring temperature:");
     //temp = tempsensor.readTempC();
     //Serial.print(temp);
     //Serial.println(" C");
     //delay(500);
     tempbytes = tempsensor.read16(0x05);
+    Serial.write(0xAA);
+    Serial.write(0x55);
     Serial.write((uint8_t*)&tempbytes, 2);
     return;
   }
