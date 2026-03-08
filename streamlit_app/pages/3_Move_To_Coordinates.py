@@ -27,12 +27,6 @@ with c1:
         res = mgr.get_coords_packet(st.session_state)
         st.session_state.coords = res
         st.code(res.get("line", "—"))
-with c2:
-    if st.button("Move S (sync)", use_container_width=True, disabled=disabled):
-        mgr.send_cmd(f"S{sx},{sy},{sz}")
-        res = mgr.get_coords_packet(st.session_state)
-        st.session_state.coords = res
-        st.code(res.get("line", "—"))
 
 c3, c4 = st.columns(2)
 with c3:
