@@ -337,6 +337,15 @@ static bool readCmd(char *buf, size_t maxlen) {
 
   while (Serial.available()) {
     char c = (char)Serial.read();
+
+    // Ignore serial monitor line endings and surrounding whitespace.
+    if (c == '\r' || c == '\n') {
+      if (idx == 0) continue;
+      // If line ending arrives mid-command, reset to avoid poisoning next command.
+      idx = 0;
+      continue;
+    }
+
     if (c == ';') {
       buf[idx] = 0;
       idx = 0;
