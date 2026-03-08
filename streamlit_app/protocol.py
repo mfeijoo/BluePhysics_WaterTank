@@ -41,42 +41,42 @@ class MoveMeasurePacket:
 
 def parse_stream_samples_from_buffer(buf: bytearray):
     """
-    A0 02 + u32 idx + u32 dt_us + u16 ch0 + u16 ch1 (14 bytes)
+    AA 55 33 + u32 idx + u32 dt_us + u16 ch0 + u16 ch1 (15 bytes)
     Returns (samples, remaining_buf)
     """
     samples = []
     i = 0
     while True:
-        j = buf.find(b"\xA0\x02", i)
+        j = buf.find(b"\xAA\x55\x33", i)
         if j < 0:
-            return samples, (buf[-1:] if len(buf) else bytearray())
-        if len(buf) < j + 14:
+            return samples, (buf[-2:] if len(buf) > 1 else bytearray(buf))
+        if len(buf) < j + 15:
             return samples, buf[j:]
-        idx, dt_us, ch0, ch1 = struct.unpack_from("<IIHH", buf, j + 2)
+        idx, dt_us, ch0, ch1 = struct.unpack_from("<IIHH", buf, j + 3)
         samples.append(Sample(idx, dt_us, ch0, ch1))
-        i = j + 14
+        i = j + 15
         if i >= len(buf):
             return samples, bytearray()
 
 def try_parse_stream_start(buf: bytearray):
-    # A0 01 + u32 integ_us (6 bytes)
-    j = buf.find(b"\xA0\x01")
+    # AA 55 32 + u32 integ_us (7 bytes)
+    j = buf.find(b"\xAA\x55\x32")
     if j < 0:
         return None, buf
-    if len(buf) < j + 6:
+    if len(buf) < j + 7:
         return None, buf[j:]
-    integ_us, = struct.unpack_from("<I", buf, j + 2)
-    return integ_us, buf[j + 6:]
+    integ_us, = struct.unpack_from("<I", buf, j + 3)
+    return integ_us, buf[j + 7:]
 
 def try_parse_stream_end(buf: bytearray):
-    # A0 03 + u32 total (6 bytes)
-    j = buf.find(b"\xA0\x03")
+    # AA 55 34 + u32 total (7 bytes)
+    j = buf.find(b"\xAA\x55\x34")
     if j < 0:
         return None, buf
-    if len(buf) < j + 6:
+    if len(buf) < j + 7:
         return None, buf[j:]
-    total, = struct.unpack_from("<I", buf, j + 2)
-    return total, buf[j + 6:]
+    total, = struct.unpack_from("<I", buf, j + 3)
+    return total, buf[j + 7:]
 
 
 def try_parse_measure_packet(buf: bytearray):
@@ -193,3 +193,47 @@ def mcp9808_raw_to_celsius(raw: int) -> float:
     if t & 0x1000:
         temp -= 256.0
     return temp
+
+
+def decode_stream_packets_from_bytes(raw: bytes | bytearray):
+    """
+    Decode rs;/re; stream bytes from firmware packet format:
+      AA 55 32 + u32 integration_us
+      AA 55 33 + u32 idx + u32 dt_us + u16 ch0 + u16 ch1
+      AA 55 34 + u32 total_samples
+    """
+    buf = bytearray(raw)
+    integration_us = None
+    total_samples = None
+    samples = []
+
+    while buf:
+        changed = False
+
+        if integration_us is None:
+            integ, remaining = try_parse_stream_start(buf)
+            if integ is not None:
+                integration_us = integ
+                buf = remaining
+                changed = True
+
+        total, remaining = try_parse_stream_end(buf)
+        if total is not None:
+            total_samples = total
+            buf = remaining
+            changed = True
+
+        parsed_samples, remaining = parse_stream_samples_from_buffer(buf)
+        if parsed_samples:
+            samples.extend(parsed_samples)
+            buf = remaining
+            changed = True
+
+        if not changed:
+            buf = buf[1:]
+
+    return {
+        "integration_us": integration_us,
+        "total_samples": total_samples,
+        "samples": samples,
+    }
