@@ -47,6 +47,11 @@ The system supports the following operations (firmware + app):
 - Firmware prints `pcnt32 X/Y/Z` in human-readable text
 - Intended for manual serial-monitor debugging
 
+## 10. Raw pcnt32 Limits Debug Print
+- Send `L;` over serial
+- Firmware prints current min/max `pcnt32` limits for X, Y, and Z in human-readable text
+- Intended for manual serial-monitor debugging
+
 ---
 
 # Measurement Timing
