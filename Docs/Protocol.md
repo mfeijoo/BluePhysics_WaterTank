@@ -58,6 +58,13 @@ The system supports the following operations (firmware + app):
 - Payload carries X/Y/Z min/max `int32` limits in little-endian order
 - Intended for machine parsing
 
+## 12. Set pcnt32 Limits Command
+- Send `lc<xmin>,<xmax>,<ymin>,<ymax>,<zmin>,<zmax>;` over serial
+- Example: `lc-10000,10000,-9000,9000,-8000,8000;`
+- Firmware replies with ACK frame `AA 55 10 63` and limits frame `AA 55 23`
+- Error frame `AA 55 11 63 01` indicates malformed command
+- Error frame `AA 55 11 63 02` indicates invalid range (`min >= max`)
+
 ---
 
 # Measurement Timing
@@ -75,7 +82,7 @@ Streaming mode is non-blocking and designed to prevent firmware RAM overflow.
 # Design Principles
 
 - Deterministic firmware
-- Binary-first communication with explicit human-debug commands (`P;`, `L;`, `start;`, `stop;`)
+- Binary-first communication with explicit human-debug commands (`P;`, `L;`, `start;`, `stop;`) and configurable axis-limit command (`lc...;`)
 - Limit-check failures are emitted as binary error packets (`AA 55 11 <cmd_id> 03`)
 - Clear separation of firmware and UI logic
 - Hardware abstraction ready

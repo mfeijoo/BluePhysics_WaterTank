@@ -270,6 +270,59 @@ static double stepsToPcnt32Delta(int32_t steps) {
 }
 
 static void sendErr(uint8_t cmd_id, uint8_t err_code);
+static void sendPcnt32LimitsPacket();
+
+static bool parseLimitValue(char *&p, int32_t &out, bool requireComma) {
+  char *end = nullptr;
+  long v = strtol(p, &end, 10);
+  if (end == p) return false;
+
+  if (requireComma) {
+    if (*end != ',') return false;
+    p = end + 1;
+  } else {
+    if (*end != 0) return false;
+  }
+
+  out = (int32_t)v;
+  return true;
+}
+
+static bool trySetPcnt32LimitsFromCommand(char *cmd) {
+  // format: lc<xmin>,<xmax>,<ymin>,<ymax>,<zmin>,<zmax>;
+  if (cmd[0] != 'l' || cmd[1] != 'c') return false;
+
+  int32_t xmin = 0, xmax = 0;
+  int32_t ymin = 0, ymax = 0;
+  int32_t zmin = 0, zmax = 0;
+
+  char *p = cmd + 2;
+  if (!parseLimitValue(p, xmin, true) ||
+      !parseLimitValue(p, xmax, true) ||
+      !parseLimitValue(p, ymin, true) ||
+      !parseLimitValue(p, ymax, true) ||
+      !parseLimitValue(p, zmin, true) ||
+      !parseLimitValue(p, zmax, false)) {
+    sendErr('c', 0x01);
+    return true;
+  }
+
+  if (xmin >= xmax || ymin >= ymax || zmin >= zmax) {
+    sendErr('c', 0x02);
+    return true;
+  }
+
+  limminpcnt32x = xmin;
+  limmaxpcnt32x = xmax;
+  limminpcnt32y = ymin;
+  limmaxpcnt32y = ymax;
+  limminpcnt32z = zmin;
+  limmaxpcnt32z = zmax;
+
+  sendAck('c');
+  sendPcnt32LimitsPacket();
+  return true;
+}
 
 static bool checkSingleAxisMoveLimit(char axis, int32_t steps) {
   int32_t current = 0;
@@ -800,7 +853,7 @@ void setup() {
 
 
 void loop() {
-  char cmd[48];
+  char cmd[96];
 
   detReadAndPrintHumanService();
   detReadAndSendBytesService();
@@ -868,6 +921,11 @@ void loop() {
   if (cmd[0] == 'l' && cmd[1] == 0) {
     sendAck('l');
     sendPcnt32LimitsPacket();
+    return;
+  }
+
+  //-----set pcnt32 axis limits: lc<xmin>,<xmax>,<ymin>,<ymax>,<zmin>,<zmax>;
+  if (trySetPcnt32LimitsFromCommand(cmd)) {
     return;
   }
 
