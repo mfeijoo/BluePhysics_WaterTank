@@ -357,6 +357,73 @@ static bool checkCoupledYZMoveLimit(int32_t steps) {
   return false;
 }
 
+static bool moveXYZSequentialStepsWithLimitCheck(int32_t xSteps, int32_t ySteps, int32_t zSteps) {
+  int32_t currentX = pcntRead32(pcX);
+  int32_t currentY = yCoord();
+  int32_t currentZ = pcntRead32(pcZ);
+
+  double projectedX = (double)currentX + stepsToPcnt32Delta(xSteps);
+  double projectedY = (double)currentY + stepsToPcnt32Delta(ySteps);
+  double projectedZ = (double)currentZ + stepsToPcnt32Delta(zSteps);
+
+  bool xOk = inLimitRange(projectedX, limminpcnt32x, limmaxpcnt32x);
+  bool yOk = inLimitRange(projectedY, limminpcnt32y, limmaxpcnt32y);
+  bool zOk = inLimitRange(projectedZ, limminpcnt32z, limmaxpcnt32z);
+
+  if (!xOk || !yOk || !zOk) {
+    Serial.println("Movement blocked: XYZ sequential command would surpass configured pcnt32 limits.");
+
+    if (!xOk) {
+      Serial.print("X current/projected/range: ");
+      Serial.print(currentX);
+      Serial.print(" -> ");
+      Serial.print(projectedX, 4);
+      Serial.print(" in [");
+      Serial.print(limminpcnt32x);
+      Serial.print(", ");
+      Serial.print(limmaxpcnt32x);
+      Serial.println("]");
+    }
+
+    if (!yOk) {
+      Serial.print("Y current/projected/range: ");
+      Serial.print(currentY);
+      Serial.print(" -> ");
+      Serial.print(projectedY, 4);
+      Serial.print(" in [");
+      Serial.print(limminpcnt32y);
+      Serial.print(", ");
+      Serial.print(limmaxpcnt32y);
+      Serial.println("]");
+    }
+
+    if (!zOk) {
+      Serial.print("Z current/projected/range: ");
+      Serial.print(currentZ);
+      Serial.print(" -> ");
+      Serial.print(projectedZ, 4);
+      Serial.print(" in [");
+      Serial.print(limminpcnt32z);
+      Serial.print(", ");
+      Serial.print(limmaxpcnt32z);
+      Serial.println("]");
+    }
+
+    return false;
+  }
+
+  moveAxisSteps('x', xSteps);
+  moveAxisSteps('y', ySteps);
+
+  int32_t y_before = pcntRead32(pcY);
+  moveYZCoupledSteps(zSteps);
+  int32_t y_after = pcntRead32(pcY);
+  y_offset -= (y_after - y_before);
+
+  sendCoordsPacket(0x21);
+  return true;
+}
+
 
 //============================================================
 // Serial helpers
@@ -907,6 +974,48 @@ void loop() {
     }
 
     detReadAndPrintHuman(N);
+    return;
+  }
+
+  //============================================================
+  // XYZ sequential move in steps: "M<x>,<y>,<z>"
+  // Moves one motor at a time in this order: X -> Y -> Z
+  //============================================================
+  if (cmd[0] == 'M') {
+    char *p = cmd + 1;
+    char *end = nullptr;
+
+    long xStepsL = strtol(p, &end, 10);
+    if (end == p || *end != ',') {
+      sendErr('M', 0x01);
+      Serial.println("Error: malformed M command. Use M<x_steps>,<y_steps>,<z_steps>;");
+      return;
+    }
+
+    p = end + 1;
+    long yStepsL = strtol(p, &end, 10);
+    if (end == p || *end != ',') {
+      sendErr('M', 0x01);
+      Serial.println("Error: malformed M command. Use M<x_steps>,<y_steps>,<z_steps>;");
+      return;
+    }
+
+    p = end + 1;
+    long zStepsL = strtol(p, &end, 10);
+    if (end == p || *end != 0) {
+      sendErr('M', 0x01);
+      Serial.println("Error: malformed M command. Use M<x_steps>,<y_steps>,<z_steps>;");
+      return;
+    }
+
+    int32_t xSteps = (int32_t)xStepsL;
+    int32_t ySteps = (int32_t)yStepsL;
+    int32_t zSteps = (int32_t)zStepsL;
+
+    if (!moveXYZSequentialStepsWithLimitCheck(xSteps, ySteps, zSteps)) {
+      return;
+    }
+
     return;
   }
 
