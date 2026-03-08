@@ -105,6 +105,52 @@ N * [<uint32 idx><uint32 dt_us><uint16 ch0><uint16 ch1>]
 - `72` is ASCII `'r'` in the ACK packet.
 - Sample payload matches `struct Sample` in firmware (little-endian fields).
 
+## 4.1) Detector byte-stream packets (`rs;` / `re;`)
+
+`rs;` and `re;` use **binary packets** with the standard `AA 55 <type>` framing.
+
+### Stream start (`rs;`)
+
+Firmware sends:
+
+```text
+AA 55 10 73
+AA 55 32
+<uint32 integration_us>
+```
+
+- `73` is ASCII `'s'` in the ACK packet.
+
+### Stream sample packets (while active)
+
+Firmware emits one packet per integration period:
+
+```text
+AA 55 33
+<uint32 idx>
+<uint32 dt_us>
+<uint16 ch0>
+<uint16 ch1>
+```
+
+- Total packet size: 3 + 12 = 15 bytes.
+
+### Stream stop (`re;`)
+
+Firmware sends:
+
+```text
+AA 55 10 65
+AA 55 34
+<uint32 total_samples>
+```
+
+- `65` is ASCII `'e'` in the ACK packet.
+- `total_samples` is the number of `0x33` sample packets sent in that streaming session.
+
+
+- `start;` / `stop;` remain available for human-readable troubleshooting output over `Serial.print(...)`.
+
 ## 5) Move + measure packet (`Qx,y,z,N;`)
 
 For `Q...`, firmware moves then emits:
