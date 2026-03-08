@@ -8,6 +8,7 @@ from protocol import (
     try_parse_stream_end,
     try_parse_measure_packet,
     try_parse_move_measure_packet,
+    try_parse_readbytes_packet,
 )
 from settings import DEFAULTS, counts_to_mm, get_motion_settings
 
@@ -279,6 +280,54 @@ class SerialManager:
             self.start_rx_thread()
 
 
+
+
+
+    def readbytes_binary(self, samples_count: int, timeout_s: float = 30.0):
+        """
+        Run detector read-bytes command using readbytesN; and parse the AA 55 31 packet.
+        Returns dict with packet data or error.
+        """
+        if self.streaming_active:
+            return {"ok": False, "error": "Stop streaming first."}
+        if not self.is_connected():
+            return {"ok": False, "error": "Not connected."}
+
+        n = int(samples_count)
+        if n < 1:
+            n = 1
+        if n > 5000:
+            n = 5000
+
+        self.stop_rx_thread()
+        try:
+            with self.lock:
+                self.ser.reset_input_buffer()
+                self.ser.reset_output_buffer()
+                self.ser.write(f"readbytes{n};".encode("ascii"))
+                self.ser.flush()
+
+            buf = bytearray()
+            t0 = time.time()
+            while time.time() - t0 < timeout_s:
+                with self.lock:
+                    waiting = self.ser.in_waiting
+                    if waiting:
+                        buf += self.ser.read(waiting)
+
+                packet, buf = try_parse_readbytes_packet(buf)
+                if packet is not None:
+                    return {
+                        "ok": True,
+                        "samples_count": packet.total_samples,
+                        "integration_us": packet.integration_us,
+                        "samples": packet.samples,
+                    }
+                time.sleep(0.005)
+
+            return {"ok": False, "error": "Timeout waiting for readbytes binary packet."}
+        finally:
+            self.start_rx_thread()
 
     def read_temperature_bytes(self, timeout_s: float = 2.0):
         """
