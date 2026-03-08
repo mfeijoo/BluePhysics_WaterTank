@@ -1,10 +1,10 @@
-# BluePhysics Serial Protocol (Binary-Only)
+# BluePhysics Serial Protocol (Binary + Human Debug)
 
-This protocol is **binary-only for device responses and data payloads**.
+This protocol is **binary-first** for device responses and data payloads, with a small set of human-readable debug commands.
 
 - Firmware commands are still sent as ASCII tokens terminated by `;` (example: `M10,25,-3;`).
-- Firmware replies/data are binary packets only (`Serial.write(...)`), no human-readable `Serial.print` output.
-- Output-mode commands `tb;` / `th;` are removed and must not be used.
+- Firmware replies/data are binary packets (`Serial.write(...)`) for production commands.
+- Human-readable debug output is available on selected commands (for example `P;`, `start;`, and `stop;`).
 
 ---
 
@@ -13,8 +13,8 @@ This protocol is **binary-only for device responses and data payloads**.
 ASCII command string terminated by semicolon:
 
 - `z;`
-- `P;`
 - `p;`
+- `P;`
 - `b;`
 - `i700;`
 - `m2000;`
@@ -177,13 +177,28 @@ AA 55 <int32 x><int32 y><int32 z>
 ```
 
 - No `<type>` byte in this legacy variant.
-- Prefer `P;` / `p;` with typed packet `AA 55 20 ...` for robust parsing.
+- Prefer `p;` with typed packet `AA 55 20 ...` for robust parsing.
 
 ---
 
-## 7) Binary-only rules
+## 7) Human-readable debug command (`P;`)
 
-1. Do not parse lines from firmware as text.
+`P;` prints raw 32-bit pulse counter values for all axes using `Serial.print(...)`:
+
+```text
+pcnt32 X: <int32>
+pcnt32 Y: <int32>
+pcnt32 Z: <int32>
+```
+
+- `P;` is intended for manual debugging in a serial monitor.
+- It does **not** send a binary packet and does **not** emit ACK/ERR framing.
+
+---
+
+## 8) Binary parser rules
+
+1. For machine parsing, use binary-response commands (for coordinates use `p;`, not `P;`).
 2. Do not send `tb;` or `th;`.
-3. Treat all device responses/telemetry as binary packets.
-4. Keep parser resynchronization logic based on packet headers (`AA55`, `ABCD`, `ADEF`).
+3. Keep parser resynchronization logic based on packet headers (`AA55`, `ABCD`, `ADEF`).
+4. Ignore human-readable text lines when using debug commands (`P;`, `start;`, `stop;`).

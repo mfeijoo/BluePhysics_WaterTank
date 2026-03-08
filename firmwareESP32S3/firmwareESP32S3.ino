@@ -328,6 +328,19 @@ static void sendCoordsPacket(uint8_t type) {
   Serial.write((uint8_t*)&z, 4);
 }
 
+static void printPcnt32ValuesHuman() {
+  int32_t x = pcntRead32(pcX);
+  int32_t y = yCoord();
+  int32_t z = pcntRead32(pcZ);
+
+  Serial.print("pcnt32 X: ");
+  Serial.println(x);
+  Serial.print("pcnt32 Y: ");
+  Serial.println(y);
+  Serial.print("pcnt32 Z: ");
+  Serial.println(z);
+}
+
 static void detReadChannels() {
   SPI.beginTransaction(detSPI);
 
@@ -699,6 +712,12 @@ void loop() {
   if (cmd[0] == 'p' && cmd[1] == 0) {
     sendAck('p');
     sendCoordsPacket(0x20);
+    return;
+  }
+
+  //-----print raw pcnt32 values in human-readable text
+  if (cmd[0] == 'P' && cmd[1] == 0) {
+    printPcnt32ValuesHuman();
     return;
   }
 

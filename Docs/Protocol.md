@@ -42,6 +42,11 @@ The system supports the following operations (firmware + app):
 - 200 µs
 - Can be changed dynamically
 
+## 9. Raw pcnt32 Debug Print
+- Send `P;` over serial
+- Firmware prints `pcnt32 X/Y/Z` in human-readable text
+- Intended for manual serial-monitor debugging
+
 ---
 
 # Measurement Timing
@@ -59,7 +64,7 @@ Streaming mode is non-blocking and designed to prevent firmware RAM overflow.
 # Design Principles
 
 - Deterministic firmware
-- Binary-only communication
+- Binary-first communication with explicit human-debug commands (`P;`, `start;`, `stop;`)
 - Clear separation of firmware and UI logic
 - Hardware abstraction ready
 - Extensible protocol
