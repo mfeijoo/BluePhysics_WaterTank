@@ -592,6 +592,22 @@ static void detStreamService() {
   }
 }
 
+//===========================================================
+// Set Pot value manually
+//===========================================================
+static const int CS_POT = 36;
+
+void setpot(int value){
+  SPI.beginTransaction(SPISettings(7000000, MSBFIRST, SPI_MODE0));
+  //set the pot
+  digitalWrite(CS_POT, LOW);
+  SPI.transfer(0x1);
+  SPI.transfer16(value << 6);
+  digitalWrite(CS_POT, HIGH);
+  SPI.endTransaction();
+
+}
+
 
 //============================================================
 // Arduino setup/loop
@@ -666,7 +682,7 @@ void loop() {
 
 
   //measure temperature manually
-  if (cmd[0] == 't') {
+  if (cmd[0] == 't' && cmd[1] == 0) {
     sendAck('t');
     //Serial.println("Measuring temperature:");
     //temp = tempsensor.readTempC();
@@ -678,6 +694,20 @@ void loop() {
     Serial.write(0x55);
     Serial.write((uint8_t*)&tempbytes, 2);
     return;
+  }
+
+  //change pot manually
+  if (cmd[0]  == 'q' && cmd[1] == 0) {
+    //pot value in counts from 0 to 1023
+    //uint32_t potvalue = (uint32_t)strtoul(cmd + 1, nullptr, 10);
+    //sendAck('q');
+    Serial.println("q command received");
+    Serial.println("pot value received: ");
+    //Serial.print(potvalue);
+    //setpot(potvalue);
+    return;
+
+
   }
 
 
