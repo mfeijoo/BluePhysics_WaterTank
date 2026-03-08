@@ -20,7 +20,7 @@ if st.button("Send move", use_container_width=True, disabled=disabled):
     else:
         st.error(res.get("error", "Move failed"))
 
-if st.button("Read coords (P;)", use_container_width=True, disabled=disabled):
+if st.button("Read coords (p;)", use_container_width=True, disabled=disabled):
     res = mgr.get_coords_packet(st.session_state)
     if res.get("ok"):
         st.session_state.coords = res

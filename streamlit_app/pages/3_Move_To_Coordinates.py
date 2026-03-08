@@ -30,7 +30,7 @@ with c1:
 
 c3, c4 = st.columns(2)
 with c3:
-    if st.button("Coords P;", use_container_width=True, disabled=disabled):
+    if st.button("Coords p;", use_container_width=True, disabled=disabled):
         res = mgr.get_coords_packet(st.session_state)
         st.session_state.coords = res
         st.code(res.get("line", "—"))
