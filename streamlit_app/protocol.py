@@ -24,6 +24,13 @@ class MeasurePacket:
 
 
 @dataclass
+class ReadBytesPacket:
+    total_samples: int
+    integration_us: int
+    samples: list[Sample]
+
+
+@dataclass
 class MoveMeasurePacket:
     total_samples: int
     integration_us: int
@@ -139,6 +146,41 @@ def try_parse_move_measure_packet(buf: bytearray):
         x_end=x_end,
         y_end=y_end,
         z_end=z_end,
+        samples=samples,
+    )
+    return packet, buf[j + total_len:]
+
+
+def try_parse_readbytes_packet(buf: bytearray):
+    """
+    AA 55 31 + u32 total_samples + u32 integration_us
+    + N * (u32 idx + u32 dt_us + u16 ch0 + u16 ch1)
+    Returns (ReadBytesPacket|None, remaining_buf)
+    """
+    j = buf.find(b"\xAA\x55\x31")
+    if j < 0:
+        return None, (buf[-2:] if len(buf) > 1 else bytearray(buf))
+
+    if len(buf) < j + 11:
+        return None, buf[j:]
+
+    total_samples, integration_us = struct.unpack_from("<II", buf, j + 3)
+    payload_len = total_samples * 12
+    total_len = 3 + 8 + payload_len
+
+    if len(buf) < j + total_len:
+        return None, buf[j:]
+
+    samples = []
+    p = j + 11
+    for _ in range(total_samples):
+        idx, dt_us, ch0, ch1 = struct.unpack_from("<IIHH", buf, p)
+        samples.append(Sample(idx=idx, dt_us=dt_us, ch0=ch0, ch1=ch1))
+        p += 12
+
+    packet = ReadBytesPacket(
+        total_samples=total_samples,
+        integration_us=integration_us,
         samples=samples,
     )
     return packet, buf[j + total_len:]
