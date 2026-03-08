@@ -442,6 +442,25 @@ static void printPcnt32ValuesHuman() {
   Serial.println(z);
 }
 
+static void printPcnt32LimitsHuman() {
+  Serial.println("pcnt32 limits:");
+
+  Serial.print("X min: ");
+  Serial.print(limminpcnt32x);
+  Serial.print(", X max: ");
+  Serial.println(limmaxpcnt32x);
+
+  Serial.print("Y min: ");
+  Serial.print(limminpcnt32y);
+  Serial.print(", Y max: ");
+  Serial.println(limmaxpcnt32y);
+
+  Serial.print("Z min: ");
+  Serial.print(limminpcnt32z);
+  Serial.print(", Z max: ");
+  Serial.println(limmaxpcnt32z);
+}
+
 static void detReadChannels() {
   SPI.beginTransaction(detSPI);
 
@@ -819,6 +838,12 @@ void loop() {
   //-----print raw pcnt32 values in human-readable text
   if (cmd[0] == 'P' && cmd[1] == 0) {
     printPcnt32ValuesHuman();
+    return;
+  }
+
+  //-----print current pcnt32 axis limits in human-readable text
+  if (cmd[0] == 'L' && cmd[1] == 0) {
+    printPcnt32LimitsHuman();
     return;
   }
 
