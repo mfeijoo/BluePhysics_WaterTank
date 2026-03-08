@@ -269,6 +269,8 @@ static double stepsToPcnt32Delta(int32_t steps) {
   return (double)steps * (double)PCNT32_COUNTS_PER_STEP;
 }
 
+static void sendErr(uint8_t cmd_id, uint8_t err_code);
+
 static bool checkSingleAxisMoveLimit(char axis, int32_t steps) {
   int32_t current = 0;
   int32_t limMin = 0;
@@ -298,20 +300,7 @@ static bool checkSingleAxisMoveLimit(char axis, int32_t steps) {
   double projected = (double)current + delta;
 
   if (!inLimitRange(projected, limMin, limMax)) {
-    Serial.print("Movement blocked on axis ");
-    Serial.print(axis);
-    Serial.println(": projected pcnt32 value will surpass configured limits.");
-    Serial.print("Current pcnt32: ");
-    Serial.println(current);
-    Serial.print("Requested steps: ");
-    Serial.println(steps);
-    Serial.print("Projected pcnt32: ");
-    Serial.println(projected, 4);
-    Serial.print("Allowed range: [");
-    Serial.print(limMin);
-    Serial.print(", ");
-    Serial.print(limMax);
-    Serial.println("]");
+    sendErr((uint8_t)axis, 0x03);
     return false;
   }
 
@@ -330,29 +319,7 @@ static bool checkCoupledYZMoveLimit(int32_t steps) {
   bool zOk = inLimitRange(projectedZ, limminpcnt32z, limmaxpcnt32z);
   if (yOk && zOk) return true;
 
-  Serial.println("Movement blocked: coupled Y+Z command will surpass configured pcnt32 limits.");
-  if (!yOk) {
-    Serial.print("Y current/projected/range: ");
-    Serial.print(currentY);
-    Serial.print(" -> ");
-    Serial.print(projectedY, 4);
-    Serial.print(" in [");
-    Serial.print(limminpcnt32y);
-    Serial.print(", ");
-    Serial.print(limmaxpcnt32y);
-    Serial.println("]");
-  }
-  if (!zOk) {
-    Serial.print("Z current/projected/range: ");
-    Serial.print(currentZ);
-    Serial.print(" -> ");
-    Serial.print(projectedZ, 4);
-    Serial.print(" in [");
-    Serial.print(limminpcnt32z);
-    Serial.print(", ");
-    Serial.print(limmaxpcnt32z);
-    Serial.println("]");
-  }
+  sendErr('Z', 0x03);
 
   return false;
 }
@@ -371,44 +338,7 @@ static bool moveXYZSequentialStepsWithLimitCheck(int32_t xSteps, int32_t ySteps,
   bool zOk = inLimitRange(projectedZ, limminpcnt32z, limmaxpcnt32z);
 
   if (!xOk || !yOk || !zOk) {
-    Serial.println("Movement blocked: XYZ sequential command would surpass configured pcnt32 limits.");
-
-    if (!xOk) {
-      Serial.print("X current/projected/range: ");
-      Serial.print(currentX);
-      Serial.print(" -> ");
-      Serial.print(projectedX, 4);
-      Serial.print(" in [");
-      Serial.print(limminpcnt32x);
-      Serial.print(", ");
-      Serial.print(limmaxpcnt32x);
-      Serial.println("]");
-    }
-
-    if (!yOk) {
-      Serial.print("Y current/projected/range: ");
-      Serial.print(currentY);
-      Serial.print(" -> ");
-      Serial.print(projectedY, 4);
-      Serial.print(" in [");
-      Serial.print(limminpcnt32y);
-      Serial.print(", ");
-      Serial.print(limmaxpcnt32y);
-      Serial.println("]");
-    }
-
-    if (!zOk) {
-      Serial.print("Z current/projected/range: ");
-      Serial.print(currentZ);
-      Serial.print(" -> ");
-      Serial.print(projectedZ, 4);
-      Serial.print(" in [");
-      Serial.print(limminpcnt32z);
-      Serial.print(", ");
-      Serial.print(limmaxpcnt32z);
-      Serial.println("]");
-    }
-
+    sendErr('M', 0x03);
     return false;
   }
 

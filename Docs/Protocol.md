@@ -65,6 +65,7 @@ Streaming mode is non-blocking and designed to prevent firmware RAM overflow.
 
 - Deterministic firmware
 - Binary-first communication with explicit human-debug commands (`P;`, `start;`, `stop;`)
+- Limit-check failures are emitted as binary error packets (`AA 55 11 <cmd_id> 03`)
 - Clear separation of firmware and UI logic
 - Hardware abstraction ready
 - Extensible protocol
