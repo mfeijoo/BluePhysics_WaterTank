@@ -266,8 +266,13 @@ static bool det_human_streaming = false;
 static uint32_t det_human_t0_us = 0;
 static uint32_t det_human_last_us = 0;
 static uint32_t det_human_idx = 0;
-static const uint8_t K_STREAM_HDR0 = 0xA5;
-static const uint8_t K_STREAM_HDR1 = 0x5A;
+static bool det_bytes_streaming = false;
+static uint32_t det_bytes_t0_us = 0;
+static uint32_t det_bytes_last_us = 0;
+static uint32_t det_bytes_idx = 0;
+static const uint8_t PKT_STREAM_START = 0x32;
+static const uint8_t PKT_STREAM_SAMPLE = 0x33;
+static const uint8_t PKT_STREAM_STOP = 0x34;
 
 static bool readCmd(char *buf, size_t maxlen) {
   static size_t idx = 0;
@@ -423,6 +428,7 @@ static void detReadAndPrintHumanStart() {
   det_human_last_us = det_human_t0_us;
   det_human_idx = 0;
   det_human_streaming = true;
+  det_bytes_streaming = false;
 
   Serial.println("Detector streaming started (idx, dt_us, ch0, ch1)");
 }
@@ -450,6 +456,49 @@ static void detReadAndPrintHumanService() {
   Serial.print(", ");
   Serial.println(det_ch1);
   det_human_idx++;
+}
+
+static void detReadAndSendBytesStart() {
+  digitalWrite(RST_PIN, HIGH);
+  digitalWrite(HOLD_PIN, LOW);
+
+  det_bytes_t0_us = micros();
+  det_bytes_last_us = det_bytes_t0_us;
+  det_bytes_idx = 0;
+  det_bytes_streaming = true;
+  det_human_streaming = false;
+
+  sendAck('s');
+  sendPktHeader(PKT_STREAM_START);
+  uint32_t integ = (uint32_t)integraltimemicros;
+  Serial.write((uint8_t*)&integ, 4);
+}
+
+static void detReadAndSendBytesStop() {
+  det_bytes_streaming = false;
+
+  sendAck('e');
+  sendPktHeader(PKT_STREAM_STOP);
+  Serial.write((uint8_t*)&det_bytes_idx, 4);
+}
+
+static void detReadAndSendBytesService() {
+  if (!det_bytes_streaming) return;
+
+  uint32_t now = micros();
+  if ((uint32_t)(now - det_bytes_last_us) < (uint32_t)integraltimemicros) return;
+
+  detReadOnce();
+  now = micros();
+  det_bytes_last_us = now;
+
+  sendPktHeader(PKT_STREAM_SAMPLE);
+  Serial.write((uint8_t*)&det_bytes_idx, 4);
+  uint32_t dt = (uint32_t)(now - det_bytes_t0_us);
+  Serial.write((uint8_t*)&dt, 4);
+  Serial.write((uint8_t*)&det_ch0, 2);
+  Serial.write((uint8_t*)&det_ch1, 2);
+  det_bytes_idx++;
 }
 
 static void detReadAndSendBytes(uint32_t N) {
@@ -604,6 +653,7 @@ void loop() {
   char cmd[48];
 
   detReadAndPrintHumanService();
+  detReadAndSendBytesService();
 
   if (!readCmd(cmd, sizeof(cmd))) return;
   if (cmd[0] == 0) return;
@@ -702,7 +752,7 @@ void loop() {
     return;
   }
 
-  //-----continuous read and print detector values: start; ... stop;
+    //-----continuous human detector stream: start; ... stop;
   if (strcmp(cmd, "start") == 0) {
     detReadAndPrintHumanStart();
     return;
@@ -710,6 +760,17 @@ void loop() {
 
   if (strcmp(cmd, "stop") == 0) {
     detReadAndPrintHumanStop();
+    return;
+  }
+
+  //-----continuous detector stream in bytes: rs; ... re;
+  if (strcmp(cmd, "rs") == 0) {
+    detReadAndSendBytesStart();
+    return;
+  }
+
+  if (strcmp(cmd, "re") == 0) {
+    detReadAndSendBytesStop();
     return;
   }
 
