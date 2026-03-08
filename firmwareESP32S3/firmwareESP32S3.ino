@@ -272,6 +272,7 @@ static double stepsToPcnt32Delta(int32_t steps) {
 
 static void sendErr(uint8_t cmd_id, uint8_t err_code);
 static void sendPcnt32LimitsPacket();
+static void sendStepDelaysPacket();
 
 static bool parseLimitValue(char *&p, int32_t &out, bool requireComma) {
   char *end = nullptr;
@@ -322,6 +323,39 @@ static bool trySetPcnt32LimitsFromCommand(char *cmd) {
 
   sendAck('c');
   sendPcnt32LimitsPacket();
+  return true;
+}
+
+static bool trySetStepDelaysFromCommand(char *cmd) {
+  // format: stepdelays<pulse_us>,<gap_us>;
+  if (strncmp(cmd, "stepdelays", 10) != 0) return false;
+
+  char *p = cmd + 10;
+  char *end = nullptr;
+
+  unsigned long pulse = strtoul(p, &end, 10);
+  if (end == p || *end != ',') {
+    sendErr('d', 0x01);
+    return true;
+  }
+
+  p = end + 1;
+  unsigned long gap = strtoul(p, &end, 10);
+  if (end == p || *end != 0) {
+    sendErr('d', 0x01);
+    return true;
+  }
+
+  if (pulse < 1 || pulse > 1000000UL || gap < 1 || gap > 1000000UL) {
+    sendErr('d', 0x02);
+    return true;
+  }
+
+  STEP_PULSE_US = (uint32_t)pulse;
+  STEP_GAP_US = (uint32_t)gap;
+
+  sendAck('d');
+  sendStepDelaysPacket();
   return true;
 }
 
@@ -508,6 +542,15 @@ static void sendPcnt32LimitsPacket() {
   Serial.write((uint8_t*)&zmax, 4);
 }
 
+static void sendStepDelaysPacket() {
+  uint32_t pulse = STEP_PULSE_US;
+  uint32_t gap = STEP_GAP_US;
+
+  sendPktHeader(0x24);
+  Serial.write((uint8_t*)&pulse, 4);
+  Serial.write((uint8_t*)&gap, 4);
+}
+
 static void printPcnt32ValuesHuman() {
   int32_t x = pcntRead32(pcX);
   int32_t y = yCoord();
@@ -538,6 +581,13 @@ static void printPcnt32LimitsHuman() {
   Serial.print(limminpcnt32z);
   Serial.print(", Z max: ");
   Serial.println(limmaxpcnt32z);
+}
+
+static void printStepDelaysHuman() {
+  Serial.print("STEP_PULSE_US: ");
+  Serial.println(STEP_PULSE_US);
+  Serial.print("STEP_GAP_US: ");
+  Serial.println(STEP_GAP_US);
 }
 
 static void detReadChannels() {
@@ -926,6 +976,12 @@ void loop() {
     return;
   }
 
+  //-----print current step timing values in human-readable text
+  if (cmd[0] == 'D' && cmd[1] == 0) {
+    printStepDelaysHuman();
+    return;
+  }
+
   //-----pcnt32 axis limits in binary packet
   if (cmd[0] == 'l' && cmd[1] == 0) {
     sendAck('l');
@@ -933,8 +989,20 @@ void loop() {
     return;
   }
 
+  //-----step timings in binary packet
+  if (cmd[0] == 'd' && cmd[1] == 0) {
+    sendAck('d');
+    sendStepDelaysPacket();
+    return;
+  }
+
   //-----set pcnt32 axis limits: lc<xmin>,<xmax>,<ymin>,<ymax>,<zmin>,<zmax>;
   if (trySetPcnt32LimitsFromCommand(cmd)) {
+    return;
+  }
+
+  //-----set step timings: stepdelays<pulse_us>,<gap_us>;
+  if (trySetStepDelaysFromCommand(cmd)) {
     return;
   }
 
