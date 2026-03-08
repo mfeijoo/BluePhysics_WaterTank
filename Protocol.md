@@ -18,6 +18,7 @@ ASCII command string terminated by semicolon:
 - `b;`
 - `i700;`
 - `m2000;`
+- `readbytes100;`
 - `M10,25.5,-3;`
 - `S10,25.5,-3;`
 - `Q10,25.5,-3,2000;`
@@ -88,7 +89,23 @@ N * [<uint32 dt_us><uint16 ch0><uint16 ch1>]
 
 ---
 
-## 4) Move + measure packet (`Qx,y,z,N;`)
+
+## 4) Detector read-bytes packet (`readbytesN;`)
+
+For `readbytesN;`, firmware first ACKs the command and then emits one binary block:
+
+```text
+AA 55 10 72
+AA 55 31
+<uint32 total_samples>
+<uint32 integration_us>
+N * [<uint32 idx><uint32 dt_us><uint16 ch0><uint16 ch1>]
+```
+
+- `72` is ASCII `'r'` in the ACK packet.
+- Sample payload matches `struct Sample` in firmware (little-endian fields).
+
+## 5) Move + measure packet (`Qx,y,z,N;`)
 
 For `Q...`, firmware moves then emits:
 
@@ -105,7 +122,7 @@ N * [<uint32 dt_us><uint16 ch0><uint16 ch1>]
 
 ---
 
-## 5) Coordinate compatibility packet (`b;`)
+## 6) Coordinate compatibility packet (`b;`)
 
 Legacy compact coordinate packet:
 
@@ -118,7 +135,7 @@ AA 55 <int32 x><int32 y><int32 z>
 
 ---
 
-## 6) Binary-only rules
+## 7) Binary-only rules
 
 1. Do not parse lines from firmware as text.
 2. Do not send `tb;` or `th;`.
