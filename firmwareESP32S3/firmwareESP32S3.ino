@@ -517,23 +517,28 @@ static void detReadAndPrintHuman(uint32_t N) {
   digitalWrite(RST_PIN, HIGH);
   digitalWrite(HOLD_PIN, LOW);
 
-  for (uint32_t i = 0; i < N; i++) {
-    delayMicroseconds(integraltimemicros);
-    detReadOnce();
+  uint32_t starttime = micros();
+  uint32_t i = 0;
+  while (i < N) {
+    if ((uint32_t)(micros() - starttime) >= (uint32_t)integraltimemicros) {
+      detReadOnce();
+      starttime = micros();
 
-    measBuf[i].idx = i;
-    measBuf[i].ch0 = det_ch0;
-    measBuf[i].ch1 = det_ch1;
+      measBuf[i].idx = i;
+      measBuf[i].ch0 = det_ch0;
+      measBuf[i].ch1 = det_ch1;
+      i++;
+    }
   }
 
   Serial.println("Detector read results:");
-  for (uint32_t i = 0; i < N; i++) {
+  for (uint32_t j = 0; j < N; j++) {
     Serial.print("read ");
-    Serial.print(measBuf[i].idx);
+    Serial.print(measBuf[j].idx);
     Serial.print(": ch0=");
-    Serial.print(measBuf[i].ch0);
+    Serial.print(measBuf[j].ch0);
     Serial.print(", ch1=");
-    Serial.println(measBuf[i].ch1);
+    Serial.println(measBuf[j].ch1);
   }
 }
 
