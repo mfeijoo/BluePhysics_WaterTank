@@ -273,7 +273,8 @@ class SerialManager:
 
     def read_temperature_bytes(self, timeout_s: float = 2.0):
         """
-        Request temperature bytes using t; and read 2-byte MCP9808 raw value.
+        Request temperature bytes using t; and parse firmware framing:
+          [optional ACK: AA 55 10 <cmd_id>] + [temp: AA 55 <u16 raw>]
         """
 
         try:
@@ -295,9 +296,24 @@ class SerialManager:
                     if n:
                         buf += self.ser.read(n)
 
-                if len(buf) >= 2:
-                    raw, = struct.unpack_from("<H", buf, 0)
-                    return {"ok": True, "raw": int(raw)}
+                # Resynchronize on AA 55 header so leading noise / text output
+                # does not corrupt binary temperature decoding.
+                j = buf.find(b"\xAA\x55")
+                if j < 0:
+                    # Keep only possible partial header prefix.
+                    if len(buf) > 1:
+                        buf = bytearray([buf[-1]]) if buf[-1] == 0xAA else bytearray()
+                else:
+                    if j > 0:
+                        del buf[:j]
+
+                    if len(buf) >= 4:
+                        # Optional ACK packet from sendAck('t'): AA 55 10 <cmd_id>
+                        if buf[2] == 0x10:
+                            del buf[:4]
+                        else:
+                            raw, = struct.unpack_from("<H", buf, 2)
+                            return {"ok": True, "raw": int(raw)}
 
                 time.sleep(0.005)
 
