@@ -83,6 +83,7 @@ static const int DET_MOSI = 11;
 
 // Chip selects (set to your wiring)
 static const int CS_ADQ = 37;
+static const int CS_POT = 36;
 
 // Integrator control pins (set to your wiring)
 static const int RST_PIN  = 40;
@@ -415,6 +416,17 @@ static void detReadChannels() {
   det_ch1 = v1;
 }
 
+static void setPot(uint16_t value) {
+  SPI.beginTransaction(SPISettings(7000000, MSBFIRST, SPI_MODE0));
+
+  digitalWrite(CS_POT, LOW);
+  SPI.transfer(0x01);
+  SPI.transfer16(value << 6);
+  digitalWrite(CS_POT, HIGH);
+
+  SPI.endTransaction();
+}
+
 // One integration sample: HOLD high -> read -> reset -> HOLD low
 static void detReadOnce() {
   digitalWrite(HOLD_PIN, HIGH);
@@ -618,6 +630,9 @@ void setup() {
   pinMode(CS_ADQ, OUTPUT);
   digitalWrite(CS_ADQ, HIGH);
 
+  pinMode(CS_POT, OUTPUT);
+  digitalWrite(CS_POT, HIGH);
+
   pinMode(RST_PIN, OUTPUT);
   pinMode(HOLD_PIN, OUTPUT);
   digitalWrite(RST_PIN, HIGH);
@@ -754,6 +769,33 @@ void loop() {
     if (v > 50000) v = 50000;    // simple guard
     integraltimemicros = v;
     sendAck('i');
+    return;
+  }
+
+  //-----set manual potentiometer value: q0; ... q1023;
+  if (cmd[0] == 'q') {
+    Serial.print("Received command: ");
+    Serial.println(cmd);
+
+    char *end = nullptr;
+    long v = strtol(cmd + 1, &end, 10);
+    if (end == cmd + 1 || *end != 0) {
+      sendErr('q', 0x01);
+      Serial.println("Error: malformed q command. Use q<0-1023>;");
+      return;
+    }
+
+    if (v < 0 || v > 1023) {
+      sendErr('q', 0x02);
+      Serial.print("Error: q value out of range (0-1023): ");
+      Serial.println(v);
+      return;
+    }
+
+    setPot((uint16_t)v);
+    sendAck('q');
+    Serial.print("Potentiometer set to: ");
+    Serial.println((uint16_t)v);
     return;
   }
 
