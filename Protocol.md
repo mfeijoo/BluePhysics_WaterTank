@@ -19,6 +19,7 @@ ASCII command string terminated by semicolon:
 - `l;`
 - `D;`
 - `d;`
+- `info;`
 - `stepdelays800,800;`
 - `b;`
 - `i700;`
@@ -204,7 +205,7 @@ AA 55 <int32 x><int32 y><int32 z>
 
 ---
 
-## 7) Human-readable debug commands (`P;`, `L;`)
+## 7) Human-readable debug commands (`P;`, `L;`, `D;`, `info;`)
 
 `P;` prints raw 32-bit pulse counter values for all axes using `Serial.print(...)`:
 
@@ -218,6 +219,14 @@ pcnt32 Z: <int32>
 - It does **not** send a binary packet and does **not** emit ACK/ERR framing.
 
 
+`info;` prints hardcoded device identity values:
+
+```text
+Model: model11.2
+Firmware version: model11.2.01
+```
+
+
 `L;` prints configured 32-bit pulse counter limits for all axes using `Serial.print(...)`:
 
 ```text
@@ -229,8 +238,6 @@ Z min: <int32>, Z max: <int32>
 
 - `L;` is intended for manual debugging in a serial monitor.
 - It does **not** send a binary packet and does **not** emit ACK/ERR framing.
-
-
 
 ## 7.1) Binary pcnt32 limits packet (`l;`)
 

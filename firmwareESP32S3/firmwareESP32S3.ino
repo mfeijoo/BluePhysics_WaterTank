@@ -110,6 +110,10 @@ static const int HOLD_PIN = 41;
 static volatile uint32_t integraltimemicros = 700; // default 700 us, can set to 200 us
 static const uint32_t resettimemicros = 10;
 
+// Device identity (currently hardcoded)
+static const char DEVICE_MODEL[] = "model11.2";
+static const char DEVICE_FIRMWARE_VERSION[] = "model11.2.01";
+
 // ADS8688A in model11 uses SPI mode 1 @ 17 MHz.
 // Keep same proven settings while bringing detector code here.
 static SPISettings detSPI(17000000, MSBFIRST, SPI_MODE1);
@@ -590,6 +594,13 @@ static void printStepDelaysHuman() {
   Serial.println(STEP_GAP_US);
 }
 
+static void printDeviceInfoHuman() {
+  Serial.print("Model: ");
+  Serial.println(DEVICE_MODEL);
+  Serial.print("Firmware version: ");
+  Serial.println(DEVICE_FIRMWARE_VERSION);
+}
+
 static void detReadChannels() {
   SPI.beginTransaction(detSPI);
 
@@ -1013,6 +1024,12 @@ void loop() {
     if (v > 50000) v = 50000;    // simple guard
     integraltimemicros = v;
     sendAck('i');
+    return;
+  }
+
+  //-----print device model and firmware version in human-readable text
+  if (strcmp(cmd, "info") == 0) {
+    printDeviceInfoHuman();
     return;
   }
 
