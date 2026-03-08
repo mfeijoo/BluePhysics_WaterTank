@@ -50,6 +50,10 @@ AA 55 11 <cmd_id:1> <err_code:1>
 ```
 
 - Total length: 5 bytes.
+- `err_code` values used by current firmware:
+  - `0x01`: malformed command payload.
+  - `0x02`: argument out of range.
+  - `0x03`: movement blocked by configured axis limit(s).
 
 ### Type `0x20` COORDS
 
@@ -199,6 +203,7 @@ pcnt32 Z: <int32>
 ## 8) Binary parser rules
 
 1. For machine parsing, use binary-response commands (for coordinates use `p;`, not `P;`).
-2. Do not send `tb;` or `th;`.
-3. Keep parser resynchronization logic based on packet headers (`AA55`, `ABCD`, `ADEF`).
-4. Ignore human-readable text lines when using debug commands (`P;`, `start;`, `stop;`).
+2. Limit-check failures for `x...;`, `y...;`, `z...;`, `Z...;`, and `M...;` are binary `0x11` error packets (no human-readable `Serial.print` diagnostics).
+3. Do not send `tb;` or `th;`.
+4. Keep parser resynchronization logic based on packet headers (`AA55`, `ABCD`, `ADEF`).
+5. Ignore human-readable text lines when using debug commands (`P;`, `start;`, `stop;`).
