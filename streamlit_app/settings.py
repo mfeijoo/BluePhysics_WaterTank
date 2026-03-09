@@ -44,6 +44,11 @@ def counts_to_mm(cfg: Dict, axis: str, counts: int) -> float:
     return float(counts) * (float(cfg[f"{axis}_mm_per_turn"]) / float(cfg["pcnt_counts_per_turn"]))
 
 
+def mm_to_counts(cfg: Dict, axis: str, mm: float) -> int:
+    counts_per_mm = float(cfg["pcnt_counts_per_turn"]) / float(cfg[f"{axis}_mm_per_turn"])
+    return int(round(float(mm) * counts_per_mm))
+
+
 def mm_to_steps(cfg: Dict, axis: str, mm: float) -> int:
     return int(round(float(mm) / mm_per_step(cfg, axis)))
 
