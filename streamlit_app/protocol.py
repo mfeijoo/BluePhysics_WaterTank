@@ -22,6 +22,33 @@ class ReadBytesPacket:
     integration_us: int
     samples: list[Sample]
 
+
+@dataclass
+class AxisBoundsPacket:
+    x_min: int
+    x_max: int
+    y_min: int
+    y_max: int
+    z_min: int
+    z_max: int
+
+
+@dataclass
+class StepTimingPacket:
+    step_pulse_us: int
+    step_gap_us: int
+
+
+@dataclass
+class AckPacket:
+    cmd_id: int
+
+
+@dataclass
+class ErrPacket:
+    cmd_id: int
+    err_code: int
+
 def parse_stream_samples_from_buffer(buf: bytearray):
     """
     AA 55 33 + u32 idx + u32 dt_us + u16 ch0 + u16 ch1 (15 bytes)
@@ -95,6 +122,80 @@ def try_parse_readbytes_packet(buf: bytearray):
         samples=samples,
     )
     return packet, buf[j + total_len:]
+
+
+def try_parse_axis_bounds_packet(buf: bytearray):
+    """
+    AA 55 23 + i32 x_min + i32 x_max + i32 y_min + i32 y_max + i32 z_min + i32 z_max
+    Returns (AxisBoundsPacket|None, remaining_buf)
+    """
+    j = buf.find(b"\xAA\x55\x23")
+    if j < 0:
+        return None, (buf[-2:] if len(buf) > 1 else bytearray(buf))
+
+    total_len = 3 + 24
+    if len(buf) < j + total_len:
+        return None, buf[j:]
+
+    x_min, x_max, y_min, y_max, z_min, z_max = struct.unpack_from("<iiiiii", buf, j + 3)
+    packet = AxisBoundsPacket(
+        x_min=x_min,
+        x_max=x_max,
+        y_min=y_min,
+        y_max=y_max,
+        z_min=z_min,
+        z_max=z_max,
+    )
+    return packet, buf[j + total_len:]
+
+
+def try_parse_step_timing_packet(buf: bytearray):
+    """
+    AA 55 24 + u32 step_pulse_us + u32 step_gap_us
+    Returns (StepTimingPacket|None, remaining_buf)
+    """
+    j = buf.find(b"\xAA\x55\x24")
+    if j < 0:
+        return None, (buf[-2:] if len(buf) > 1 else bytearray(buf))
+
+    total_len = 3 + 8
+    if len(buf) < j + total_len:
+        return None, buf[j:]
+
+    step_pulse_us, step_gap_us = struct.unpack_from("<II", buf, j + 3)
+    packet = StepTimingPacket(step_pulse_us=step_pulse_us, step_gap_us=step_gap_us)
+    return packet, buf[j + total_len:]
+
+
+def try_parse_ack_packet(buf: bytearray):
+    """
+    AA 55 10 + u8 cmd_id
+    Returns (AckPacket|None, remaining_buf)
+    """
+    j = buf.find(b"\xAA\x55\x10")
+    if j < 0:
+        return None, (buf[-2:] if len(buf) > 1 else bytearray(buf))
+    if len(buf) < j + 4:
+        return None, buf[j:]
+
+    cmd_id = buf[j + 3]
+    return AckPacket(cmd_id=cmd_id), buf[j + 4:]
+
+
+def try_parse_err_packet(buf: bytearray):
+    """
+    AA 55 11 + u8 cmd_id + u8 err_code
+    Returns (ErrPacket|None, remaining_buf)
+    """
+    j = buf.find(b"\xAA\x55\x11")
+    if j < 0:
+        return None, (buf[-2:] if len(buf) > 1 else bytearray(buf))
+    if len(buf) < j + 5:
+        return None, buf[j:]
+
+    cmd_id = buf[j + 3]
+    err_code = buf[j + 4]
+    return ErrPacket(cmd_id=cmd_id, err_code=err_code), buf[j + 5:]
 
 
 def mcp9808_raw_to_celsius(raw: int) -> float:
