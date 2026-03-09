@@ -2,7 +2,7 @@ import pandas as pd
 import streamlit as st
 
 from protocol import counts_to_volts
-from settings import get_motion_settings, mm_to_steps
+from settings import evaluate_move_against_limits, get_motion_settings, mm_to_steps
 
 
 mgr = st.session_state.mgr
@@ -28,9 +28,16 @@ if not (
 sx, sy, sz = mm_to_steps(cfg, "x", x), mm_to_steps(cfg, "y", y), mm_to_steps(cfg, "z", z)
 st.caption(f"Converted targets in steps -> X:{sx}, Y:{sy}, Z:{sz}")
 
+move_cmd = f"M{sx},{sy},{sz}"
+if not disabled:
+    limit_check = evaluate_move_against_limits(mgr, st.session_state, cfg, move_cmd)
+    if not limit_check.get("allow"):
+        st.warning(f"Move blocked by limits check: {limit_check.get('reason', 'Unknown reason')}")
+        disabled = True
+
 if st.button("Move then measure", use_container_width=True, disabled=disabled):
     with st.spinner("Moving to target coordinate..."):
-        move_result = mgr.move_and_wait_coords(f"M{sx},{sy},{sz}", st.session_state)
+        move_result = mgr.move_and_wait_coords(move_cmd, st.session_state)
 
     if not move_result.get("ok"):
         st.session_state.move_and_measure_result = {

@@ -73,3 +73,85 @@ def compute_linear_speed_mm_s_from_step_delays(cfg: Dict, step_pulse_us: int, st
     # produces equal pulse/gap values where each value represents the target step period.
     effective_step_period_us = max(int(round((int(step_pulse_us) + int(step_gap_us)) / 2.0)), 1)
     return float(min_mm_per_step) / (float(effective_step_period_us) / 1_000_000.0)
+
+
+def _parse_three_step_values(payload: str) -> tuple[int, int, int]:
+    parts = [p.strip() for p in str(payload).split(",")]
+    if len(parts) != 3:
+        raise ValueError("Expected 3 comma-separated values.")
+    return int(parts[0]), int(parts[1]), int(parts[2])
+
+
+def fetch_current_coords(mgr, state) -> Dict:
+    """Read current coordinates from firmware (p; packet)."""
+    res = mgr.get_coords_packet(state)
+    if res.get("ok"):
+        state.coords = res
+    return res
+
+
+def predict_move_result_mm(cfg: Dict, current_coords: Dict, move_cmd: str) -> Dict:
+    """Predict resulting coordinates (mm) for a supported move command."""
+    cmd = (move_cmd or "").strip().rstrip(";")
+    if not cmd:
+        return {"ok": False, "error": "Empty move command."}
+
+    x_now = float(current_coords["x"])
+    y_now = float(current_coords["y"])
+    z_now = float(current_coords["z"])
+    predicted = {"x": x_now, "y": y_now, "z": z_now}
+
+    try:
+        if cmd[0] == "M":
+            sx, sy, sz = _parse_three_step_values(cmd[1:])
+            predicted["x"] = x_now + float(sx) * mm_per_step(cfg, "x")
+            predicted["y"] = y_now + float(sy) * mm_per_step(cfg, "y")
+            predicted["z"] = z_now + float(sz) * mm_per_step(cfg, "z")
+        elif cmd[0] in ("x", "y", "z"):
+            axis = cmd[0]
+            steps = int(cmd[1:])
+            predicted[axis] = float(predicted[axis]) + float(steps) * mm_per_step(cfg, axis)
+        elif cmd[0] == "Z":
+            steps = int(cmd[1:])
+            predicted["y"] = y_now + float(steps) * mm_per_step(cfg, "y")
+            predicted["z"] = z_now + float(steps) * mm_per_step(cfg, "z")
+        else:
+            return {"ok": False, "error": f"Unsupported move command: {cmd}"}
+    except (TypeError, ValueError):
+        return {"ok": False, "error": f"Malformed move command: {cmd}"}
+
+    return {"ok": True, "predicted": predicted, "current": {"x": x_now, "y": y_now, "z": z_now}}
+
+
+def evaluate_move_against_limits(mgr, state, cfg: Dict, move_cmd: str) -> Dict:
+    """Fetch current coords, predict a move, then decide allow/deny with reason."""
+    current = fetch_current_coords(mgr, state)
+    if not current.get("ok"):
+        return {"allow": False, "reason": f"Cannot validate move: {current.get('error', 'Failed to read current coords.')}"}
+
+    predicted = predict_move_result_mm(cfg, current, move_cmd)
+    if not predicted.get("ok"):
+        return {"allow": False, "reason": predicted.get("error", "Cannot predict move result.")}
+
+    target = predicted["predicted"]
+    violations = []
+    for axis in ("x", "y", "z"):
+        lo = float(cfg[f"{axis}_min_mm"])
+        hi = float(cfg[f"{axis}_max_mm"])
+        if not (lo <= float(target[axis]) <= hi):
+            violations.append(f"{axis.upper()} target {target[axis]:.3f} mm outside [{lo:.3f}, {hi:.3f}] mm")
+
+    if violations:
+        return {
+            "allow": False,
+            "reason": "; ".join(violations),
+            "current": predicted["current"],
+            "predicted": target,
+        }
+
+    return {
+        "allow": True,
+        "reason": "Move is within configured limits.",
+        "current": predicted["current"],
+        "predicted": target,
+    }

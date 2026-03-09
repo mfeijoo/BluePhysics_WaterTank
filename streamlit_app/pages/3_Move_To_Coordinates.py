@@ -1,6 +1,6 @@
 import streamlit as st
 
-from settings import get_motion_settings, mm_to_steps
+from settings import evaluate_move_against_limits, get_motion_settings, mm_to_steps
 
 mgr = st.session_state.mgr
 cfg = get_motion_settings(st.session_state)
@@ -20,11 +20,18 @@ if not (cfg["x_min_mm"] <= x <= cfg["x_max_mm"] and cfg["y_min_mm"] <= y <= cfg[
 sx, sy, sz = mm_to_steps(cfg, "x", x), mm_to_steps(cfg, "y", y), mm_to_steps(cfg, "z", z)
 st.caption(f"Converted targets in steps -> X:{sx}, Y:{sy}, Z:{sz}")
 
+move_cmd = f"M{sx},{sy},{sz}"
+if not disabled:
+    limit_check = evaluate_move_against_limits(mgr, st.session_state, cfg, move_cmd)
+    if not limit_check.get("allow"):
+        st.warning(f"Move blocked by limits check: {limit_check.get('reason', 'Unknown reason')}")
+        disabled = True
+
 c1, c2 = st.columns(2)
 with c1:
     if st.button("Move M (sequential)", use_container_width=True, disabled=disabled):
         with st.spinner("Moving to target coordinates..."):
-            res = mgr.move_and_wait_coords(f"M{sx},{sy},{sz}", st.session_state)
+            res = mgr.move_and_wait_coords(move_cmd, st.session_state)
 
         if res.get("ok"):
             st.session_state.coords = res
