@@ -69,6 +69,75 @@ class SerialManager:
             self.ser.write(cmd.encode("ascii"))
             self.ser.flush()
 
+    def get_device_info(self, timeout_s: float = 2.0):
+        """
+        Send info; and parse human-readable lines containing:
+          - Model:
+          - Firmware version:
+        """
+        if not self.is_connected():
+            return {"ok": False, "error": "Not connected.", "model": None, "firmware_version": None, "raw_lines": []}
+
+        with self.lock:
+            self.ser.reset_input_buffer()
+            self.ser.reset_output_buffer()
+            self.ser.write(b"info;")
+            self.ser.flush()
+
+        t0 = time.time()
+        text_buf = ""
+        raw_lines = []
+        model = None
+        firmware_version = None
+
+        while time.time() - t0 < timeout_s:
+            with self.lock:
+                n = self.ser.in_waiting
+                if n:
+                    chunk = self.ser.read(n)
+                    text_buf += chunk.decode("utf-8", errors="replace")
+
+            while "\n" in text_buf:
+                line, text_buf = text_buf.split("\n", 1)
+                clean_line = line.strip().rstrip("\r")
+                if not clean_line:
+                    continue
+
+                raw_lines.append(clean_line)
+                lower = clean_line.lower()
+
+                if "model:" in lower and model is None:
+                    model = clean_line.split(":", 1)[1].strip() if ":" in clean_line else clean_line
+                elif "firmware version:" in lower and firmware_version is None:
+                    firmware_version = clean_line.split(":", 1)[1].strip() if ":" in clean_line else clean_line
+
+            if model is not None and firmware_version is not None:
+                return {
+                    "ok": True,
+                    "model": model,
+                    "firmware_version": firmware_version,
+                    "raw_lines": raw_lines,
+                }
+
+            time.sleep(0.01)
+
+        if text_buf.strip():
+            clean_line = text_buf.strip().rstrip("\r")
+            if clean_line:
+                raw_lines.append(clean_line)
+                lower = clean_line.lower()
+                if "model:" in lower and model is None:
+                    model = clean_line.split(":", 1)[1].strip() if ":" in clean_line else clean_line
+                elif "firmware version:" in lower and firmware_version is None:
+                    firmware_version = clean_line.split(":", 1)[1].strip() if ":" in clean_line else clean_line
+
+        return {
+            "ok": bool(model or firmware_version),
+            "model": model,
+            "firmware_version": firmware_version,
+            "raw_lines": raw_lines,
+        }
+
     def move_and_wait_coords(self, move_cmd: str, state=None, timeout_s: float = 15.0):
         """
         Send a motor move command and block until the firmware emits a coords packet:
