@@ -3,6 +3,7 @@ import streamlit as st
 from serial_manager import auto_detect_port, list_ports
 from settings import (
     STEP_OPTIONS,
+    compute_linear_speed_mm_s_from_step_delays,
     compute_step_timings_us,
     counts_to_mm,
     get_motion_settings,
@@ -115,15 +116,68 @@ if st.button(
             st.success("Applied and confirmed axis limits from firmware.")
 
 st.header("Move speed")
-cfg["linear_speed_mm_s"] = st.number_input("Linear speed for all axes (mm/s)", value=float(cfg["linear_speed_mm_s"]), min_value=0.001, format="%.3f", step=0.001)
-pulse_us, gap_us = compute_step_timings_us(cfg)
-cfg["step_pulse_us"] = pulse_us
-cfg["step_gap_us"] = gap_us
-st.write(f"STEP_PULSE_US: {pulse_us} us")
-st.write(f"STEP_GAP_US: {gap_us} us")
+linear_speed_input = st.number_input(
+    "Linear speed for all axes (mm/s)",
+    value=float(cfg["linear_speed_mm_s"]),
+    min_value=0.001,
+    format="%.3f",
+    step=0.001,
+)
+computed_pulse_us, computed_gap_us = compute_step_timings_us({**cfg, "linear_speed_mm_s": linear_speed_input})
+cfg["linear_speed_mm_s"] = float(linear_speed_input)
 
-if st.button("Send timing to firmware", disabled=not mgr.is_connected(), use_container_width=True):
-    mgr.set_step_timing(pulse_us, gap_us)
-    st.success(f"Sent T{pulse_us},{gap_us};")
+st.subheader("Timing representations")
+st.write("Firmware delays (µs)")
+st.write(f"- STEP_PULSE_US: {int(cfg['step_pulse_us'])} us")
+st.write(f"- STEP_GAP_US: {int(cfg['step_gap_us'])} us")
+st.write("Derived linear speed (mm/s)")
+st.write(
+    f"- {compute_linear_speed_mm_s_from_step_delays(cfg, int(cfg['step_pulse_us']), int(cfg['step_gap_us'])):.3f} mm/s"
+)
+
+st.caption(
+    f"For requested speed {linear_speed_input:.3f} mm/s, suggested equal delays are "
+    f"{computed_pulse_us} us / {computed_gap_us} us."
+)
+
+c1, c2 = st.columns(2)
+with c1:
+    if st.button("Read delays from firmware", disabled=not mgr.is_connected(), use_container_width=True):
+        delays = mgr.get_step_delays_packet()
+        if not delays.get("ok"):
+            st.error(delays.get("error", "Failed to read delays from firmware."))
+        else:
+            cfg["step_pulse_us"] = int(delays["pulse_us"])
+            cfg["step_gap_us"] = int(delays["gap_us"])
+            cfg["linear_speed_mm_s"] = compute_linear_speed_mm_s_from_step_delays(
+                cfg,
+                cfg["step_pulse_us"],
+                cfg["step_gap_us"],
+            )
+            st.session_state.motion_settings = cfg
+            st.success("Loaded delays from firmware (d;).")
+
+with c2:
+    if st.button("Apply delays to firmware", disabled=not mgr.is_connected(), use_container_width=True):
+        result = mgr.set_step_delays_us(computed_pulse_us, computed_gap_us)
+        if not result.get("ok"):
+            st.error(result.get("error", "Failed to apply step delays."))
+        else:
+            confirmed = mgr.get_step_delays_packet()
+            if not confirmed.get("ok"):
+                st.error(confirmed.get("error", "Applied delays but failed to re-read d; values."))
+            else:
+                cfg["step_pulse_us"] = int(confirmed["pulse_us"])
+                cfg["step_gap_us"] = int(confirmed["gap_us"])
+                cfg["linear_speed_mm_s"] = compute_linear_speed_mm_s_from_step_delays(
+                    cfg,
+                    cfg["step_pulse_us"],
+                    cfg["step_gap_us"],
+                )
+                st.session_state.motion_settings = cfg
+                st.success(
+                    "Applied delays via stepdelays...; and confirmed with d; "
+                    f"({cfg['step_pulse_us']} us, {cfg['step_gap_us']} us)."
+                )
 
 st.session_state.motion_settings = cfg
