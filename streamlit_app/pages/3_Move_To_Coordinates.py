@@ -29,7 +29,7 @@ with c1:
         if res.get("ok"):
             st.session_state.coords = res
             st.success("Move completed.")
-            st.code(res["line"])
+            st.code(res)
         else:
             st.error(res.get("error", "Move failed"))
 
