@@ -47,6 +47,33 @@ The system supports the following operations (firmware + app):
 - Firmware prints `pcnt32 X/Y/Z` in human-readable text
 - Intended for manual serial-monitor debugging
 
+## 10. Raw pcnt32 Limits Debug Print
+- Send `L;` over serial
+- Firmware prints current min/max `pcnt32` limits for X, Y, and Z in human-readable text
+- Intended for manual serial-monitor debugging
+
+## 11. Binary pcnt32 Limits Packet
+- Send `l;` over serial
+- Firmware replies with ACK frame `AA 55 10 6C` and limits frame `AA 55 23`
+- Payload carries X/Y/Z min/max `int32` limits in little-endian order
+- Intended for machine parsing
+
+## 12. Set pcnt32 Limits Command
+- Send `lc<xmin>,<xmax>,<ymin>,<ymax>,<zmin>,<zmax>;` over serial
+- Example: `lc-10000,10000,-9000,9000,-8000,8000;`
+- Firmware replies with ACK frame `AA 55 10 63` and limits frame `AA 55 23`
+- Error frame `AA 55 11 63 01` indicates malformed command
+- Error frame `AA 55 11 63 02` indicates invalid range (`min >= max`)
+
+
+## 13. Unlimited Direct Step Move (No Limit Checks)
+- Send `u<axis><steps>;` over serial
+- Supported axes: `x`, `y`, `z`, `Z`
+- Examples: `ux200;`, `uy-50;`, `uz1000;`, `uZ300;`
+- Firmware replies with ACK frame `AA 55 10 75` and move-done coordinates frame `AA 55 21`
+- This command intentionally bypasses configured axis limits
+- Error frame `AA 55 11 75 01` indicates malformed command or unsupported axis
+
 ---
 
 # Measurement Timing
@@ -64,7 +91,8 @@ Streaming mode is non-blocking and designed to prevent firmware RAM overflow.
 # Design Principles
 
 - Deterministic firmware
-- Binary-first communication with explicit human-debug commands (`P;`, `start;`, `stop;`)
+- Binary-first communication with explicit human-debug commands (`P;`, `L;`, `start;`, `stop;`), configurable axis-limit command (`lc...;`), and explicit unlimited step move command (`u...;`)
+- Limit-check failures are emitted as binary error packets (`AA 55 11 <cmd_id> 03`)
 - Clear separation of firmware and UI logic
 - Hardware abstraction ready
 - Extensible protocol

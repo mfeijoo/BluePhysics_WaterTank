@@ -15,6 +15,12 @@ ASCII command string terminated by semicolon:
 - `z;`
 - `p;`
 - `P;`
+- `L;`
+- `l;`
+- `D;`
+- `d;`
+- `info;`
+- `stepdelays800,800;`
 - `b;`
 - `i700;`
 - `m2000;`
@@ -22,7 +28,8 @@ ASCII command string terminated by semicolon:
 - `M10,25.5,-3;`
 - `S10,25.5,-3;`
 - `Q10,25.5,-3,2000;`
-- `x200;`, `y-50;`, `z1000;`, `Y300;`
+- `x200;`, `y-50;`, `z1000;`, `Z300;`
+- `ux200;`, `uy-50;`, `uz1000;`, `uZ300;`
 
 ---
 
@@ -50,6 +57,10 @@ AA 55 11 <cmd_id:1> <err_code:1>
 ```
 
 - Total length: 5 bytes.
+- `err_code` values used by current firmware:
+  - `0x01`: malformed command payload.
+  - `0x02`: argument out of range.
+  - `0x03`: movement blocked by configured axis limit(s).
 
 ### Type `0x20` COORDS
 
@@ -70,6 +81,19 @@ Same payload layout as `0x20` COORDS (end position).
 ### Type `0x22` ZERO DONE
 
 Same payload layout as `0x20` COORDS (post-zero position).
+
+### Type `0x23` PCNT32 LIMITS
+
+```text
+AA 55 23
+<int32 x_min><int32 x_max>
+<int32 y_min><int32 y_max>
+<int32 z_min><int32 z_max>
+```
+
+- Payload: 24 bytes.
+- Total packet length: 27 bytes.
+- All numeric fields are little-endian.
 
 ---
 
@@ -181,7 +205,7 @@ AA 55 <int32 x><int32 y><int32 z>
 
 ---
 
-## 7) Human-readable debug command (`P;`)
+## 7) Human-readable debug commands (`P;`, `L;`, `D;`, `info;`)
 
 `P;` prints raw 32-bit pulse counter values for all axes using `Serial.print(...)`:
 
@@ -194,11 +218,163 @@ pcnt32 Z: <int32>
 - `P;` is intended for manual debugging in a serial monitor.
 - It does **not** send a binary packet and does **not** emit ACK/ERR framing.
 
+
+`info;` prints hardcoded device identity values:
+
+```text
+Model: model11.2
+Firmware version: model11.2.01
+```
+
+
+`L;` prints configured 32-bit pulse counter limits for all axes using `Serial.print(...)`:
+
+```text
+pcnt32 limits:
+X min: <int32>, X max: <int32>
+Y min: <int32>, Y max: <int32>
+Z min: <int32>, Z max: <int32>
+```
+
+- `L;` is intended for manual debugging in a serial monitor.
+- It does **not** send a binary packet and does **not** emit ACK/ERR framing.
+
+## 7.1) Binary pcnt32 limits packet (`l;`)
+
+For `l;`, firmware sends:
+
+```text
+AA 55 10 6C
+AA 55 23
+<int32 x_min><int32 x_max>
+<int32 y_min><int32 y_max>
+<int32 z_min><int32 z_max>
+```
+
+- `6C` is ASCII `'l'` in the ACK packet.
+- `0x23` payload is little-endian and contains min/max bounds for each axis.
+
+
+## 7.3) Step delay commands (`D;`, `d;`, `stepdelays...;`)
+
+Human-readable step timing values:
+
+```text
+D;
+```
+
+Firmware prints:
+
+```text
+STEP_PULSE_US: <uint32>
+STEP_GAP_US: <uint32>
+```
+
+Binary packet command:
+
+```text
+d;
+```
+
+Firmware sends:
+
+```text
+AA 55 10 64
+AA 55 24
+<uint32 step_pulse_us>
+<uint32 step_gap_us>
+```
+
+- `64` is ASCII `'d'` in the ACK packet.
+- Both values are little-endian microseconds.
+
+Set command:
+
+```text
+stepdelays<pulse_us>,<gap_us>;
+```
+
+Example:
+
+```text
+stepdelays800,800;
+```
+
+- Accepts integer microseconds in range `[1, 1000000]` for each value.
+- On success, firmware sends ACK + updated `0x24` packet.
+- On malformed payload, firmware sends `ERR cmd='d' code=0x01`.
+- On out-of-range values, firmware sends `ERR cmd='d' code=0x02`.
+
+
+## 7.2) Set pcnt32 limits command (`lc...;`)
+
+Set all axis limits in one command:
+
+```text
+lc<x_min>,<x_max>,<y_min>,<y_max>,<z_min>,<z_max>;
+```
+
+Example:
+
+```text
+lc-10000,10000,-9000,9000,-8000,8000;
+```
+
+Firmware response:
+
+```text
+AA 55 10 63
+AA 55 23
+<int32 x_min><int32 x_max>
+<int32 y_min><int32 y_max>
+<int32 z_min><int32 z_max>
+```
+
+Error responses:
+- `AA 55 11 63 01` malformed command.
+- `AA 55 11 63 02` invalid ranges (`min >= max` for any axis).
+
 ---
+
+
+## 7.3) Unlimited direct step move command (`u<axis><steps>;`)
+
+Move one axis (or coupled `Z`) by signed step count **without** limit checks:
+
+```text
+ux<steps>;
+uy<steps>;
+uz<steps>;
+uZ<steps>;
+```
+
+Examples:
+
+```text
+ux200;
+uy-50;
+uz1000;
+uZ300;
+```
+
+Firmware response:
+
+```text
+AA 55 10 75
+AA 55 21
+<int32 x_cnt><int32 y_cnt><int32 z_cnt>
+```
+
+- `75` is ASCII `'u'` in the ACK packet.
+- `uZ...;` uses the same true coupled Y+Z step behavior as `Z...;` and applies the same Y logical-coordinate offset compensation used by limited coupled moves.
+- Malformed `u` commands return `AA 55 11 75 01`.
 
 ## 8) Binary parser rules
 
-1. For machine parsing, use binary-response commands (for coordinates use `p;`, not `P;`).
-2. Do not send `tb;` or `th;`.
-3. Keep parser resynchronization logic based on packet headers (`AA55`, `ABCD`, `ADEF`).
-4. Ignore human-readable text lines when using debug commands (`P;`, `start;`, `stop;`).
+1. For machine parsing, use binary-response commands (for coordinates use `p;`, for limits use `l;`, not `P;`/`L;`).
+2. Limit-check failures for `x...;`, `y...;`, `z...;`, `Z...;`, and `M...;` are binary `0x11` error packets (no human-readable `Serial.print` diagnostics).
+3. `u...;` bypasses axis-limit checks by design and still returns ACK + `0x21` move-done coordinates.
+4. `lc...;` returns `ERR 0x01` on malformed syntax and `ERR 0x02` when any axis has `min >= max`.
+5. Do not send `tb;` or `th;`.
+6. Keep parser resynchronization logic based on packet headers (`AA55`, `ABCD`, `ADEF`).
+7. Ignore human-readable text lines when using debug commands (`P;`, `start;`, `stop;`).

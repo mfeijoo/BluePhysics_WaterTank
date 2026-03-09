@@ -52,8 +52,6 @@ static volatile uint32_t STEP_GAP_US   = 800; // STEP low time
 // PCNT 32-bit extensions settings
 //===============================================================================
 static const int16_t PCNT_LIMIT = 30000;
-static const float PCNT32_COUNTS_PER_STEP = 0.0625f;
-
 static volatile int32_t limmaxpcnt32x = 15000;
 static volatile int32_t limminpcnt32x = -15000;
 static volatile int32_t limmaxpcnt32y = 15000;
@@ -87,6 +85,9 @@ static const double STEPS_PER_REV      = 200.0;
 static const double ENC_COUNTS_PER_REV = 400.0;
 static const double COUNTS_PER_STEP    = ENC_COUNTS_PER_REV / STEPS_PER_REV;
 
+// Error output mode: false = binary packets only, true = human-readable Serial text.
+static bool error_messages_human = false;
+
 //===============================================================================
 // =================== DETECTOR / SPI SETTINGS ===================
 // YOU MUST EDIT THESE PINS TO MATCH YOUR WIRING ON ESP32-S3
@@ -108,6 +109,10 @@ static const int HOLD_PIN = 41;
 // Timing
 static volatile uint32_t integraltimemicros = 700; // default 700 us, can set to 200 us
 static const uint32_t resettimemicros = 10;
+
+// Device identity (currently hardcoded)
+static const char DEVICE_MODEL[] = "model11.2";
+static const char DEVICE_FIRMWARE_VERSION[] = "model11.2.01";
 
 // ADS8688A in model11 uses SPI mode 1 @ 17 MHz.
 // Keep same proven settings while bringing detector code here.
@@ -266,7 +271,96 @@ static bool inLimitRange(double value, int32_t limMin, int32_t limMax) {
 }
 
 static double stepsToPcnt32Delta(int32_t steps) {
-  return (double)steps * (double)PCNT32_COUNTS_PER_STEP;
+  return (double)steps * COUNTS_PER_STEP;
+}
+
+static void sendErr(uint8_t cmd_id, uint8_t err_code);
+static void sendPcnt32LimitsPacket();
+static void sendStepDelaysPacket();
+
+static bool parseLimitValue(char *&p, int32_t &out, bool requireComma) {
+  char *end = nullptr;
+  long v = strtol(p, &end, 10);
+  if (end == p) return false;
+
+  if (requireComma) {
+    if (*end != ',') return false;
+    p = end + 1;
+  } else {
+    if (*end != 0) return false;
+  }
+
+  out = (int32_t)v;
+  return true;
+}
+
+static bool trySetPcnt32LimitsFromCommand(char *cmd) {
+  // format: lc<xmin>,<xmax>,<ymin>,<ymax>,<zmin>,<zmax>;
+  if (cmd[0] != 'l' || cmd[1] != 'c') return false;
+
+  int32_t xmin = 0, xmax = 0;
+  int32_t ymin = 0, ymax = 0;
+  int32_t zmin = 0, zmax = 0;
+
+  char *p = cmd + 2;
+  if (!parseLimitValue(p, xmin, true) ||
+      !parseLimitValue(p, xmax, true) ||
+      !parseLimitValue(p, ymin, true) ||
+      !parseLimitValue(p, ymax, true) ||
+      !parseLimitValue(p, zmin, true) ||
+      !parseLimitValue(p, zmax, false)) {
+    sendErr('c', 0x01);
+    return true;
+  }
+
+  if (xmin >= xmax || ymin >= ymax || zmin >= zmax) {
+    sendErr('c', 0x02);
+    return true;
+  }
+
+  limminpcnt32x = xmin;
+  limmaxpcnt32x = xmax;
+  limminpcnt32y = ymin;
+  limmaxpcnt32y = ymax;
+  limminpcnt32z = zmin;
+  limmaxpcnt32z = zmax;
+
+  sendAck('c');
+  sendPcnt32LimitsPacket();
+  return true;
+}
+
+static bool trySetStepDelaysFromCommand(char *cmd) {
+  // format: stepdelays<pulse_us>,<gap_us>;
+  if (strncmp(cmd, "stepdelays", 10) != 0) return false;
+
+  char *p = cmd + 10;
+  char *end = nullptr;
+
+  unsigned long pulse = strtoul(p, &end, 10);
+  if (end == p || *end != ',') {
+    sendErr('d', 0x01);
+    return true;
+  }
+
+  p = end + 1;
+  unsigned long gap = strtoul(p, &end, 10);
+  if (end == p || *end != 0) {
+    sendErr('d', 0x01);
+    return true;
+  }
+
+  if (pulse < 1 || pulse > 1000000UL || gap < 1 || gap > 1000000UL) {
+    sendErr('d', 0x02);
+    return true;
+  }
+
+  STEP_PULSE_US = (uint32_t)pulse;
+  STEP_GAP_US = (uint32_t)gap;
+
+  sendAck('d');
+  sendStepDelaysPacket();
+  return true;
 }
 
 static bool checkSingleAxisMoveLimit(char axis, int32_t steps) {
@@ -298,20 +392,7 @@ static bool checkSingleAxisMoveLimit(char axis, int32_t steps) {
   double projected = (double)current + delta;
 
   if (!inLimitRange(projected, limMin, limMax)) {
-    Serial.print("Movement blocked on axis ");
-    Serial.print(axis);
-    Serial.println(": projected pcnt32 value will surpass configured limits.");
-    Serial.print("Current pcnt32: ");
-    Serial.println(current);
-    Serial.print("Requested steps: ");
-    Serial.println(steps);
-    Serial.print("Projected pcnt32: ");
-    Serial.println(projected, 4);
-    Serial.print("Allowed range: [");
-    Serial.print(limMin);
-    Serial.print(", ");
-    Serial.print(limMax);
-    Serial.println("]");
+    sendErr((uint8_t)axis, 0x03);
     return false;
   }
 
@@ -330,29 +411,7 @@ static bool checkCoupledYZMoveLimit(int32_t steps) {
   bool zOk = inLimitRange(projectedZ, limminpcnt32z, limmaxpcnt32z);
   if (yOk && zOk) return true;
 
-  Serial.println("Movement blocked: coupled Y+Z command will surpass configured pcnt32 limits.");
-  if (!yOk) {
-    Serial.print("Y current/projected/range: ");
-    Serial.print(currentY);
-    Serial.print(" -> ");
-    Serial.print(projectedY, 4);
-    Serial.print(" in [");
-    Serial.print(limminpcnt32y);
-    Serial.print(", ");
-    Serial.print(limmaxpcnt32y);
-    Serial.println("]");
-  }
-  if (!zOk) {
-    Serial.print("Z current/projected/range: ");
-    Serial.print(currentZ);
-    Serial.print(" -> ");
-    Serial.print(projectedZ, 4);
-    Serial.print(" in [");
-    Serial.print(limminpcnt32z);
-    Serial.print(", ");
-    Serial.print(limmaxpcnt32z);
-    Serial.println("]");
-  }
+  sendErr('Z', 0x03);
 
   return false;
 }
@@ -371,44 +430,7 @@ static bool moveXYZSequentialStepsWithLimitCheck(int32_t xSteps, int32_t ySteps,
   bool zOk = inLimitRange(projectedZ, limminpcnt32z, limmaxpcnt32z);
 
   if (!xOk || !yOk || !zOk) {
-    Serial.println("Movement blocked: XYZ sequential command would surpass configured pcnt32 limits.");
-
-    if (!xOk) {
-      Serial.print("X current/projected/range: ");
-      Serial.print(currentX);
-      Serial.print(" -> ");
-      Serial.print(projectedX, 4);
-      Serial.print(" in [");
-      Serial.print(limminpcnt32x);
-      Serial.print(", ");
-      Serial.print(limmaxpcnt32x);
-      Serial.println("]");
-    }
-
-    if (!yOk) {
-      Serial.print("Y current/projected/range: ");
-      Serial.print(currentY);
-      Serial.print(" -> ");
-      Serial.print(projectedY, 4);
-      Serial.print(" in [");
-      Serial.print(limminpcnt32y);
-      Serial.print(", ");
-      Serial.print(limmaxpcnt32y);
-      Serial.println("]");
-    }
-
-    if (!zOk) {
-      Serial.print("Z current/projected/range: ");
-      Serial.print(currentZ);
-      Serial.print(" -> ");
-      Serial.print(projectedZ, 4);
-      Serial.print(" in [");
-      Serial.print(limminpcnt32z);
-      Serial.print(", ");
-      Serial.print(limmaxpcnt32z);
-      Serial.println("]");
-    }
-
+    sendErr('M', 0x03);
     return false;
   }
 
@@ -483,6 +505,14 @@ static void sendAck(uint8_t cmd_id) {
 }
 
 static void sendErr(uint8_t cmd_id, uint8_t err_code) {
+  if (error_messages_human) {
+    Serial.print("ERR cmd=");
+    Serial.print((char)cmd_id);
+    Serial.print(" code=");
+    Serial.println((int)err_code);
+    return;
+  }
+
   sendPktHeader(0x11);
   Serial.write(cmd_id);
   Serial.write(err_code);
@@ -499,6 +529,32 @@ static void sendCoordsPacket(uint8_t type) {
   Serial.write((uint8_t*)&z, 4);
 }
 
+static void sendPcnt32LimitsPacket() {
+  int32_t xmin = limminpcnt32x;
+  int32_t xmax = limmaxpcnt32x;
+  int32_t ymin = limminpcnt32y;
+  int32_t ymax = limmaxpcnt32y;
+  int32_t zmin = limminpcnt32z;
+  int32_t zmax = limmaxpcnt32z;
+
+  sendPktHeader(0x23);
+  Serial.write((uint8_t*)&xmin, 4);
+  Serial.write((uint8_t*)&xmax, 4);
+  Serial.write((uint8_t*)&ymin, 4);
+  Serial.write((uint8_t*)&ymax, 4);
+  Serial.write((uint8_t*)&zmin, 4);
+  Serial.write((uint8_t*)&zmax, 4);
+}
+
+static void sendStepDelaysPacket() {
+  uint32_t pulse = STEP_PULSE_US;
+  uint32_t gap = STEP_GAP_US;
+
+  sendPktHeader(0x24);
+  Serial.write((uint8_t*)&pulse, 4);
+  Serial.write((uint8_t*)&gap, 4);
+}
+
 static void printPcnt32ValuesHuman() {
   int32_t x = pcntRead32(pcX);
   int32_t y = yCoord();
@@ -510,6 +566,39 @@ static void printPcnt32ValuesHuman() {
   Serial.println(y);
   Serial.print("pcnt32 Z: ");
   Serial.println(z);
+}
+
+static void printPcnt32LimitsHuman() {
+  Serial.println("pcnt32 limits:");
+
+  Serial.print("X min: ");
+  Serial.print(limminpcnt32x);
+  Serial.print(", X max: ");
+  Serial.println(limmaxpcnt32x);
+
+  Serial.print("Y min: ");
+  Serial.print(limminpcnt32y);
+  Serial.print(", Y max: ");
+  Serial.println(limmaxpcnt32y);
+
+  Serial.print("Z min: ");
+  Serial.print(limminpcnt32z);
+  Serial.print(", Z max: ");
+  Serial.println(limmaxpcnt32z);
+}
+
+static void printStepDelaysHuman() {
+  Serial.print("STEP_PULSE_US: ");
+  Serial.println(STEP_PULSE_US);
+  Serial.print("STEP_GAP_US: ");
+  Serial.println(STEP_GAP_US);
+}
+
+static void printDeviceInfoHuman() {
+  Serial.print("Model: ");
+  Serial.println(DEVICE_MODEL);
+  Serial.print("Firmware version: ");
+  Serial.println(DEVICE_FIRMWARE_VERSION);
 }
 
 static void detReadChannels() {
@@ -834,7 +923,7 @@ void setup() {
 
 
 void loop() {
-  char cmd[48];
+  char cmd[96];
 
   detReadAndPrintHumanService();
   detReadAndSendBytesService();
@@ -892,13 +981,72 @@ void loop() {
     return;
   }
 
+  //-----print current pcnt32 axis limits in human-readable text
+  if (cmd[0] == 'L' && cmd[1] == 0) {
+    printPcnt32LimitsHuman();
+    return;
+  }
+
+  //-----print current step timing values in human-readable text
+  if (cmd[0] == 'D' && cmd[1] == 0) {
+    printStepDelaysHuman();
+    return;
+  }
+
+  //-----pcnt32 axis limits in binary packet
+  if (cmd[0] == 'l' && cmd[1] == 0) {
+    sendAck('l');
+    sendPcnt32LimitsPacket();
+    return;
+  }
+
+  //-----step timings in binary packet
+  if (cmd[0] == 'd' && cmd[1] == 0) {
+    sendAck('d');
+    sendStepDelaysPacket();
+    return;
+  }
+
+  //-----set pcnt32 axis limits: lc<xmin>,<xmax>,<ymin>,<ymax>,<zmin>,<zmax>;
+  if (trySetPcnt32LimitsFromCommand(cmd)) {
+    return;
+  }
+
+  //-----set step timings: stepdelays<pulse_us>,<gap_us>;
+  if (trySetStepDelaysFromCommand(cmd)) {
+    return;
+  }
+
+  //-----print device model and firmware version in human-readable text
+  if (strcmp(cmd, "info") == 0) {
+    printDeviceInfoHuman();
+    return;
+  }
+
   //-----set integration time: i700;
   if (cmd[0] == 'i') {
-    uint32_t v = (uint32_t)strtoul(cmd + 1, nullptr, 10);
+    char *end = nullptr;
+    uint32_t v = (uint32_t)strtoul(cmd + 1, &end, 10);
+    if (end == cmd + 1 || *end != 0) {
+      sendErr('i', 0x01);
+      return;
+    }
+
     if (v < 50) v = 50;          // simple guard
     if (v > 50000) v = 50000;    // simple guard
     integraltimemicros = v;
     sendAck('i');
+    return;
+  }
+
+  //-----toggle error mode: eh0 (binary), eh1 (human-readable)
+  if (cmd[0] == 'e' && cmd[1] == 'h' && (cmd[2] == '0' || cmd[2] == '1') && cmd[3] == 0) {
+    error_messages_human = (cmd[2] == '1');
+    if (error_messages_human) {
+      Serial.println("Error output mode: human-readable");
+    } else {
+      sendAck('h');
+    }
     return;
   }
 
@@ -1016,6 +1164,40 @@ void loop() {
       return;
     }
 
+    return;
+  }
+
+  //============================================================
+  // Unlimited independent/coupled move (no limit checks):
+  // "ux200" "uy-50" "uz1000" "uZ300"
+  //============================================================
+  if (cmd[0] == 'u') {
+    char axis = cmd[1];
+    if (!(axis == 'x' || axis == 'y' || axis == 'z' || axis == 'Z')) {
+      sendErr('u', 0x01);
+      return;
+    }
+
+    char *end = nullptr;
+    long nLong = strtol(cmd + 2, &end, 10);
+    if (end == cmd + 2 || *end != 0) {
+      sendErr('u', 0x01);
+      return;
+    }
+
+    int32_t n = (int32_t)nLong;
+    sendAck('u');
+
+    if (axis == 'Z') {
+      int32_t y_before = pcntRead32(pcY);
+      moveYZCoupledSteps(n);
+      int32_t y_after = pcntRead32(pcY);
+      y_offset -= (y_after - y_before);
+    } else {
+      moveAxisSteps(axis, n);
+    }
+
+    sendCoordsPacket(0x21);
     return;
   }
 
