@@ -1,7 +1,14 @@
 import streamlit as st
 
 from serial_manager import auto_detect_port, list_ports
-from settings import STEP_OPTIONS, compute_step_timings_us, get_motion_settings, mm_per_step
+from settings import (
+    STEP_OPTIONS,
+    compute_step_timings_us,
+    counts_to_mm,
+    get_motion_settings,
+    mm_per_step,
+    mm_to_counts,
+)
 
 st.title("8) Settings")
 mgr = st.session_state.mgr
@@ -52,12 +59,60 @@ st.subheader("Linear distance per step")
 st.write({f"{a.upper()} mm/step": round(mm_per_step(cfg, a), 6) for a in ("x", "y", "z")})
 
 st.header("Axis limits (mm)")
+if st.button("Read limits from firmware", disabled=not mgr.is_connected(), use_container_width=True):
+    limits = mgr.get_limits_packet()
+    if not limits.get("ok"):
+        st.error(limits.get("error", "Failed to read limits from firmware."))
+    else:
+        for axis in ("x", "y", "z"):
+            cfg[f"{axis}_min_mm"] = counts_to_mm(cfg, axis, limits[f"{axis}min"])
+            cfg[f"{axis}_max_mm"] = counts_to_mm(cfg, axis, limits[f"{axis}max"])
+        st.session_state.motion_settings = cfg
+        st.success("Loaded axis limits from firmware.")
+
 for axis in ("x", "y", "z"):
     c1, c2 = st.columns(2)
     with c1:
         cfg[f"{axis}_min_mm"] = st.number_input(f"{axis.upper()} min", value=float(cfg[f"{axis}_min_mm"]), format="%.3f", step=0.001)
     with c2:
         cfg[f"{axis}_max_mm"] = st.number_input(f"{axis.upper()} max", value=float(cfg[f"{axis}_max_mm"]), format="%.3f", step=0.001)
+
+limit_errors = []
+for axis in ("x", "y", "z"):
+    min_mm = float(cfg[f"{axis}_min_mm"])
+    max_mm = float(cfg[f"{axis}_max_mm"])
+    if min_mm >= max_mm:
+        limit_errors.append(f"{axis.upper()}: min must be less than max.")
+
+if limit_errors:
+    for err in limit_errors:
+        st.error(err)
+
+if st.button(
+    "Apply limits",
+    disabled=(not mgr.is_connected()) or bool(limit_errors),
+    use_container_width=True,
+):
+    limits_result = mgr.set_limits_counts(
+        xmin=mm_to_counts(cfg, "x", cfg["x_min_mm"]),
+        xmax=mm_to_counts(cfg, "x", cfg["x_max_mm"]),
+        ymin=mm_to_counts(cfg, "y", cfg["y_min_mm"]),
+        ymax=mm_to_counts(cfg, "y", cfg["y_max_mm"]),
+        zmin=mm_to_counts(cfg, "z", cfg["z_min_mm"]),
+        zmax=mm_to_counts(cfg, "z", cfg["z_max_mm"]),
+    )
+    if not limits_result.get("ok"):
+        st.error(limits_result.get("error", "Failed to apply limits."))
+    else:
+        refreshed = mgr.get_limits_packet()
+        if not refreshed.get("ok"):
+            st.error(refreshed.get("error", "Applied limits but failed to refresh from firmware."))
+        else:
+            for axis in ("x", "y", "z"):
+                cfg[f"{axis}_min_mm"] = counts_to_mm(cfg, axis, refreshed[f"{axis}min"])
+                cfg[f"{axis}_max_mm"] = counts_to_mm(cfg, axis, refreshed[f"{axis}max"])
+            st.session_state.motion_settings = cfg
+            st.success("Applied and confirmed axis limits from firmware.")
 
 st.header("Move speed")
 cfg["linear_speed_mm_s"] = st.number_input("Linear speed for all axes (mm/s)", value=float(cfg["linear_speed_mm_s"]), min_value=0.001, format="%.3f", step=0.001)
