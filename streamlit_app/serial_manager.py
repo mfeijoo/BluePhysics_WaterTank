@@ -3,7 +3,11 @@ import time, threading, queue, struct
 import serial
 import serial.tools.list_ports
 from protocol import (
+    try_parse_ack_packet,
+    try_parse_axis_bounds_packet,
+    try_parse_err_packet,
     try_parse_readbytes_packet,
+    try_parse_step_timing_packet,
     decode_stream_packets_from_bytes,
 )
 from settings import DEFAULTS, counts_to_mm, get_motion_settings
@@ -339,8 +343,176 @@ class SerialManager:
 
 
     def set_step_timing(self, pulse_us: int, gap_us: int):
+        return self.set_step_delays_us(pulse_us=pulse_us, gap_us=gap_us)
+
+    def _wait_for_ack_or_err(self, timeout_s: float = 3.0):
+        t0 = time.time()
+        buf = bytearray()
+
+        while time.time() - t0 < timeout_s:
+            with self.lock:
+                n = self.ser.in_waiting
+                if n:
+                    buf += self.ser.read(n)
+
+            ack, remaining = try_parse_ack_packet(buf)
+            if ack is not None:
+                return {"ok": True, "cmd_id": int(ack.cmd_id)}
+            buf = remaining
+
+            err, remaining = try_parse_err_packet(buf)
+            if err is not None:
+                return {
+                    "ok": False,
+                    "error": f"Firmware returned error for cmd_id 0x{int(err.cmd_id):02X}.",
+                    "cmd_id": int(err.cmd_id),
+                    "err_code": int(err.err_code),
+                }
+            buf = remaining
+
+            time.sleep(0.005)
+
+        return {"ok": False, "error": "Timeout waiting for ACK/ERR packet."}
+
+    def get_limits_packet(self, timeout_s: float = 3.0):
+        """
+        Send l; and parse axis bounds packet:
+          AA 55 23 + i32 xmin + i32 xmax + i32 ymin + i32 ymax + i32 zmin + i32 zmax
+        """
         if not self.is_connected():
-            return
+            return {"ok": False, "error": "Not connected."}
+
         with self.lock:
-            self.ser.write(f"T{int(pulse_us)},{int(gap_us)};".encode("ascii"))
+            self.ser.reset_input_buffer()
+            self.ser.reset_output_buffer()
+            self.ser.write(b"l;")
             self.ser.flush()
+
+        t0 = time.time()
+        buf = bytearray()
+
+        while time.time() - t0 < timeout_s:
+            with self.lock:
+                n = self.ser.in_waiting
+                if n:
+                    buf += self.ser.read(n)
+
+            packet, buf = try_parse_axis_bounds_packet(buf)
+            if packet is not None:
+                return {
+                    "ok": True,
+                    "xmin": int(packet.x_min),
+                    "xmax": int(packet.x_max),
+                    "ymin": int(packet.y_min),
+                    "ymax": int(packet.y_max),
+                    "zmin": int(packet.z_min),
+                    "zmax": int(packet.z_max),
+                }
+
+            time.sleep(0.005)
+
+        return {"ok": False, "error": "Timeout waiting for limits packet (0x23)."}
+
+    def set_limits_counts(
+        self,
+        xmin: int,
+        xmax: int,
+        ymin: int,
+        ymax: int,
+        zmin: int,
+        zmax: int,
+        timeout_s: float = 3.0,
+    ):
+        """
+        Send lc...; then wait ACK/ERR and read back limits via l;.
+        """
+        if not self.is_connected():
+            return {"ok": False, "error": "Not connected."}
+
+        cmd = f"lc{int(xmin)},{int(xmax)},{int(ymin)},{int(ymax)},{int(zmin)},{int(zmax)};"
+        with self.lock:
+            self.ser.reset_input_buffer()
+            self.ser.reset_output_buffer()
+            self.ser.write(cmd.encode("ascii"))
+            self.ser.flush()
+
+        ack_or_err = self._wait_for_ack_or_err(timeout_s=timeout_s)
+        if not ack_or_err.get("ok"):
+            return ack_or_err
+
+        limits = self.get_limits_packet(timeout_s=timeout_s)
+        if not limits.get("ok"):
+            return {
+                "ok": False,
+                "error": "Limits set ACK received, but failed to read limits packet.",
+                "ack_cmd_id": ack_or_err.get("cmd_id"),
+                "readback": limits,
+            }
+
+        limits["ack_cmd_id"] = ack_or_err.get("cmd_id")
+        return limits
+
+    def get_step_delays_packet(self, timeout_s: float = 3.0):
+        """
+        Send d; and parse step timing packet:
+          AA 55 24 + u32 step_pulse_us + u32 step_gap_us
+        """
+        if not self.is_connected():
+            return {"ok": False, "error": "Not connected."}
+
+        with self.lock:
+            self.ser.reset_input_buffer()
+            self.ser.reset_output_buffer()
+            self.ser.write(b"d;")
+            self.ser.flush()
+
+        t0 = time.time()
+        buf = bytearray()
+
+        while time.time() - t0 < timeout_s:
+            with self.lock:
+                n = self.ser.in_waiting
+                if n:
+                    buf += self.ser.read(n)
+
+            packet, buf = try_parse_step_timing_packet(buf)
+            if packet is not None:
+                return {
+                    "ok": True,
+                    "pulse_us": int(packet.step_pulse_us),
+                    "gap_us": int(packet.step_gap_us),
+                }
+
+            time.sleep(0.005)
+
+        return {"ok": False, "error": "Timeout waiting for step delays packet (0x24)."}
+
+    def set_step_delays_us(self, pulse_us: int, gap_us: int, timeout_s: float = 3.0):
+        """
+        Send stepdelays<pulse_us>,<gap_us>; then wait ACK/ERR and read back with d;.
+        """
+        if not self.is_connected():
+            return {"ok": False, "error": "Not connected."}
+
+        cmd = f"stepdelays{int(pulse_us)},{int(gap_us)};"
+        with self.lock:
+            self.ser.reset_input_buffer()
+            self.ser.reset_output_buffer()
+            self.ser.write(cmd.encode("ascii"))
+            self.ser.flush()
+
+        ack_or_err = self._wait_for_ack_or_err(timeout_s=timeout_s)
+        if not ack_or_err.get("ok"):
+            return ack_or_err
+
+        delays = self.get_step_delays_packet(timeout_s=timeout_s)
+        if not delays.get("ok"):
+            return {
+                "ok": False,
+                "error": "Step delays ACK received, but failed to read step delays packet.",
+                "ack_cmd_id": ack_or_err.get("cmd_id"),
+                "readback": delays,
+            }
+
+        delays["ack_cmd_id"] = ack_or_err.get("cmd_id")
+        return delays
