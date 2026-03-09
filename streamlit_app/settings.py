@@ -65,3 +65,11 @@ def compute_step_timings_us(cfg: Dict) -> tuple[int, int]:
     if dt_us < 1:
         dt_us = 1
     return dt_us, dt_us
+
+
+def compute_linear_speed_mm_s_from_step_delays(cfg: Dict, step_pulse_us: int, step_gap_us: int) -> float:
+    min_mm_per_step = min(mm_per_step(cfg, "x"), mm_per_step(cfg, "y"), mm_per_step(cfg, "z"))
+    # Keep reverse conversion aligned with compute_step_timings_us(), which currently
+    # produces equal pulse/gap values where each value represents the target step period.
+    effective_step_period_us = max(int(round((int(step_pulse_us) + int(step_gap_us)) / 2.0)), 1)
+    return float(min_mm_per_step) / (float(effective_step_period_us) / 1_000_000.0)
