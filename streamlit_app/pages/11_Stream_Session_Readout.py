@@ -45,7 +45,7 @@ with c2:
 
 with c3:
     st.write("Capture active:", mgr.rs_capture_active)
-    st.session_state.rs_poll_max_cycles = st.number_input(
+    max_cycles_inputed = st.number_input(
         "Max poll cycles (debug)",
         min_value=1,
         max_value=600,
