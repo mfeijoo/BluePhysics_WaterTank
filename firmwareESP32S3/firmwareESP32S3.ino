@@ -105,6 +105,8 @@ static const int CS_POT = 36;
 // Integrator control pins (set to your wiring)
 static const int RST_PIN  = 40;
 static const int HOLD_PIN = 41;
+static const int CAP_SEL_0 = 2;
+static const int CAP_SEL_1 = 42;
 
 // Timing
 static volatile uint32_t integraltimemicros = 700; // default 700 us, can set to 200 us
@@ -639,6 +641,18 @@ static void setPot(uint16_t value) {
   SPI.endTransaction();
 }
 
+// Select integrator capacitor: 0 = internal (CAP_SEL_0), 1 = external (CAP_SEL_1)
+static void selectCapacitor(uint8_t capIdx) {
+  if (capIdx == 0) {
+    digitalWrite(CAP_SEL_1, LOW);
+    digitalWrite(CAP_SEL_0, HIGH);
+    return;
+  }
+
+  digitalWrite(CAP_SEL_0, LOW);
+  digitalWrite(CAP_SEL_1, HIGH);
+}
+
 // One integration sample: HOLD high -> read -> reset -> HOLD low
 static void detReadOnce() {
   digitalWrite(HOLD_PIN, HIGH);
@@ -852,8 +866,15 @@ void setup() {
 
   pinMode(RST_PIN, OUTPUT);
   pinMode(HOLD_PIN, OUTPUT);
+  pinMode(CAP_SEL_0, OUTPUT);
+  pinMode(CAP_SEL_1, OUTPUT);
   digitalWrite(RST_PIN, HIGH);
   digitalWrite(HOLD_PIN, LOW);
+  digitalWrite(CAP_SEL_0, LOW);
+  digitalWrite(CAP_SEL_1, LOW);
+
+  // Default capacitor selection on startup: internal capacitor.
+  selectCapacitor(0);
 
   // SPI
   SPI.begin(DET_SCK, DET_MISO, DET_MOSI);
@@ -1036,6 +1057,19 @@ void loop() {
     if (v > 50000) v = 50000;    // simple guard
     integraltimemicros = v;
     sendAck('i');
+    return;
+  }
+
+  //-----select capacitor: cint (CAP_SEL_0 high), cext (CAP_SEL_1 high)
+  if (strcmp(cmd, "cint") == 0) {
+    selectCapacitor(0);
+    sendAck('c');
+    return;
+  }
+
+  if (strcmp(cmd, "cext") == 0) {
+    selectCapacitor(1);
+    sendAck('c');
     return;
   }
 
