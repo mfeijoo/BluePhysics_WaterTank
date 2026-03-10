@@ -13,15 +13,28 @@ x = st.number_input("X target (mm)", value=10.0, step=1.0)
 y = st.number_input("Y target (mm)", value=25.5, step=1.0)
 z = st.number_input("Z target (mm)", value=-3.0, step=1.0)
 
-if not (cfg["x_min_mm"] <= x <= cfg["x_max_mm"] and cfg["y_min_mm"] <= y <= cfg["y_max_mm"] and cfg["z_min_mm"] <= z <= cfg["z_max_mm"]):
-    st.error("Target is outside configured axis limits.")
-    disabled = True
+bypass_limit_checks = st.checkbox(
+    "Bypass Streamlit limit checks",
+    value=False,
+    help="Send the move request even when target coordinates are outside configured limits.",
+)
+
+if not (
+    cfg["x_min_mm"] <= x <= cfg["x_max_mm"]
+    and cfg["y_min_mm"] <= y <= cfg["y_max_mm"]
+    and cfg["z_min_mm"] <= z <= cfg["z_max_mm"]
+):
+    if bypass_limit_checks:
+        st.warning("Target is outside configured axis limits. Bypass is enabled, move command can still be sent.")
+    else:
+        st.error("Target is outside configured axis limits.")
+        disabled = True
 
 sx, sy, sz = mm_to_steps(cfg, "x", x), mm_to_steps(cfg, "y", y), mm_to_steps(cfg, "z", z)
 st.caption(f"Converted targets in steps -> X:{sx}, Y:{sy}, Z:{sz}")
 
 move_cmd = f"M{sx},{sy},{sz}"
-if not disabled:
+if not disabled and not bypass_limit_checks:
     limit_check = evaluate_move_against_limits(mgr, st.session_state, cfg, move_cmd)
     if not limit_check.get("allow"):
         st.warning(f"Move blocked by limits check: {limit_check.get('reason', 'Unknown reason')}")
