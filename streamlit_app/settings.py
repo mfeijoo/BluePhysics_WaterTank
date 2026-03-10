@@ -19,7 +19,7 @@ DEFAULTS = {
     "linear_speed_mm_s": 1.0,
     "step_pulse_us": 800,
     "step_gap_us": 800,
-    "pcnt_counts_per_turn": 400.0,
+    "pcnt_counts_per_turn": 2000.0,
 }
 
 STEP_OPTIONS = [200 * (2**n) for n in range(0, 6)]

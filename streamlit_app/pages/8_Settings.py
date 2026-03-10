@@ -74,9 +74,9 @@ if st.button("Read limits from firmware", disabled=not mgr.is_connected(), use_c
 for axis in ("x", "y", "z"):
     c1, c2 = st.columns(2)
     with c1:
-        cfg[f"{axis}_min_mm"] = st.number_input(f"{axis.upper()} min", value=float(cfg[f"{axis}_min_mm"]), format="%.3f", step=0.001)
+        cfg[f"{axis}_min_mm"] = st.number_input(f"{axis.upper()} min (mm)", value=float(cfg[f"{axis}_min_mm"]), format="%.3f", step=0.001)
     with c2:
-        cfg[f"{axis}_max_mm"] = st.number_input(f"{axis.upper()} max", value=float(cfg[f"{axis}_max_mm"]), format="%.3f", step=0.001)
+        cfg[f"{axis}_max_mm"] = st.number_input(f"{axis.upper()} max (mm)", value=float(cfg[f"{axis}_max_mm"]), format="%.3f", step=0.001)
 
 limit_errors = []
 for axis in ("x", "y", "z"):
