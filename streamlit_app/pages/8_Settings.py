@@ -116,13 +116,25 @@ if st.button(
             st.success("Applied and confirmed axis limits from firmware.")
 
 st.header("Move speed")
+min_mm_per_step = min(mm_per_step(cfg, "x"), mm_per_step(cfg, "y"), mm_per_step(cfg, "z"))
+min_step_delay_us = 100
+max_linear_speed_mm_s = min_mm_per_step / ((2 * min_step_delay_us) / 1_000_000.0)
+current_linear_speed = min(float(cfg["linear_speed_mm_s"]), max_linear_speed_mm_s)
+
 linear_speed_input = st.number_input(
     "Linear speed for all axes (mm/s)",
-    value=float(cfg["linear_speed_mm_s"]),
+    value=current_linear_speed,
     min_value=0.001,
+    max_value=float(max_linear_speed_mm_s),
     format="%.3f",
     step=0.001,
 )
+
+if float(cfg["linear_speed_mm_s"]) > max_linear_speed_mm_s:
+    st.warning(
+        "Stored speed exceeded the hardware-safe maximum based on 100 µs minimum pulse and gap delays. "
+        f"Input capped to {max_linear_speed_mm_s:.3f} mm/s."
+    )
 computed_pulse_us, computed_gap_us = compute_step_timings_us({**cfg, "linear_speed_mm_s": linear_speed_input})
 cfg["linear_speed_mm_s"] = float(linear_speed_input)
 
