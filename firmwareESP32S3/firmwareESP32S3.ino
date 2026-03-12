@@ -647,6 +647,17 @@ static void selectCapacitor(bool externalCap) {
   digitalWrite(CAP_SEL_0, externalCap ? HIGH : LOW);
 }
 
+static void printCapacitorSelectionHuman() {
+  int capSelState = digitalRead(CAP_SEL_0);
+
+  Serial.print("Capacitor selection: ");
+  if (capSelState == HIGH) {
+    Serial.println("external (CAP_SEL_0=HIGH)");
+  } else {
+    Serial.println("internal (CAP_SEL_0=LOW)");
+  }
+}
+
 // One integration sample: HOLD high -> read -> reset -> HOLD low
 static void detReadOnce() {
   digitalWrite(HOLD_PIN, HIGH);
@@ -1055,12 +1066,20 @@ void loop() {
   if (strcmp(cmd, "cint") == 0) {
     selectCapacitor(false);
     sendAck('c');
+    printCapacitorSelectionHuman();
     return;
   }
 
   if (strcmp(cmd, "cext") == 0) {
     selectCapacitor(true);
     sendAck('c');
+    printCapacitorSelectionHuman();
+    return;
+  }
+
+  //-----read capacitor selection state: cstate
+  if (strcmp(cmd, "cstate") == 0) {
+    printCapacitorSelectionHuman();
     return;
   }
 
