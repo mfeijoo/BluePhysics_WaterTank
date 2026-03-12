@@ -3,6 +3,7 @@
 #include "driver/pcnt.h"
 #include <math.h>
 #include <SPI.h>
+#include <Wire.h>
 #include "Adafruit_MCP9808.h"
 #include <ADS1115_WE.h> //we are using the chip ADS1115 and this library to read that chip
 
@@ -640,6 +641,48 @@ static void setPot(uint16_t value) {
   SPI.endTransaction();
 }
 
+// Set one channel of DAC AD5675R.
+// Valid channel for manual command is 0 or 1.
+// dcvch can go from 0 to 65535.
+static void setvoltDAC(uint8_t ch, uint16_t dcvch) {
+  Wire.beginTransmission(0x0F);
+  Wire.write(48 + ch);
+  Wire.write(dcvch >> 8);
+  Wire.write(dcvch & 0xFF);
+  Wire.endTransmission();
+}
+
+// Command format: dc<channel>,<dcvch>;
+// Examples: dc0,65535;  dc1,0;
+static bool trySetDacFromCommand(char *cmd) {
+  if (cmd[0] != 'd' || cmd[1] != 'c') return false;
+
+  char *p = cmd + 2;
+  char *end = nullptr;
+
+  long ch = strtol(p, &end, 10);
+  if (end == p || *end != ',') {
+    sendErr('c', 0x01);
+    return true;
+  }
+
+  p = end + 1;
+  long dcvch = strtol(p, &end, 10);
+  if (end == p || *end != 0) {
+    sendErr('c', 0x01);
+    return true;
+  }
+
+  if ((ch != 0 && ch != 1) || dcvch < 0 || dcvch > 65535) {
+    sendErr('c', 0x02);
+    return true;
+  }
+
+  setvoltDAC((uint8_t)ch, (uint16_t)dcvch);
+  sendAck('c');
+  return true;
+}
+
 // Select integrator capacitor using CAP_SEL_0 only.
 // CAP_SEL_0 LOW  -> internal capacitor selected.
 // CAP_SEL_0 HIGH -> external capacitor selected.
@@ -846,6 +889,7 @@ static void readPS() {
 //============================================================
 void setup() {
   Serial.begin(115200);
+  Wire.begin();
   delay(200);
 
   pinMode(X_STEP, OUTPUT); pinMode(X_DIR, OUTPUT);
@@ -1027,6 +1071,11 @@ void loop() {
   if (cmd[0] == 'd' && cmd[1] == 0) {
     sendAck('d');
     sendStepDelaysPacket();
+    return;
+  }
+
+  //-----set DAC AD5675R channel value: dc<channel>,<dcvch>;
+  if (trySetDacFromCommand(cmd)) {
     return;
   }
 
