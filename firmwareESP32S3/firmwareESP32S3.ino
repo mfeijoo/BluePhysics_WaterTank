@@ -105,6 +105,7 @@ static const int CS_POT = 36;
 // Integrator control pins (set to your wiring)
 static const int RST_PIN  = 40;
 static const int HOLD_PIN = 41;
+static const int CAP_SEL_0 = 2;
 
 // Timing
 static volatile uint32_t integraltimemicros = 700; // default 700 us, can set to 200 us
@@ -639,6 +640,24 @@ static void setPot(uint16_t value) {
   SPI.endTransaction();
 }
 
+// Select integrator capacitor using CAP_SEL_0 only.
+// CAP_SEL_0 LOW  -> internal capacitor selected.
+// CAP_SEL_0 HIGH -> external capacitor selected.
+static void selectCapacitor(bool externalCap) {
+  digitalWrite(CAP_SEL_0, externalCap ? HIGH : LOW);
+}
+
+static void printCapacitorSelectionHuman() {
+  int capSelState = digitalRead(CAP_SEL_0);
+
+  Serial.print("Capacitor selection: ");
+  if (capSelState == HIGH) {
+    Serial.println("external (CAP_SEL_0=HIGH)");
+  } else {
+    Serial.println("internal (CAP_SEL_0=LOW)");
+  }
+}
+
 // One integration sample: HOLD high -> read -> reset -> HOLD low
 static void detReadOnce() {
   digitalWrite(HOLD_PIN, HIGH);
@@ -852,8 +871,12 @@ void setup() {
 
   pinMode(RST_PIN, OUTPUT);
   pinMode(HOLD_PIN, OUTPUT);
+  pinMode(CAP_SEL_0, OUTPUT);
   digitalWrite(RST_PIN, HIGH);
   digitalWrite(HOLD_PIN, LOW);
+
+  // Default capacitor selection on startup: internal capacitor.
+  selectCapacitor(false);
 
   // SPI
   SPI.begin(DET_SCK, DET_MISO, DET_MOSI);
@@ -1036,6 +1059,27 @@ void loop() {
     if (v > 50000) v = 50000;    // simple guard
     integraltimemicros = v;
     sendAck('i');
+    return;
+  }
+
+  //-----select capacitor: cint (CAP_SEL_0 LOW), cext (CAP_SEL_0 HIGH)
+  if (strcmp(cmd, "cint") == 0) {
+    selectCapacitor(false);
+    sendAck('c');
+    printCapacitorSelectionHuman();
+    return;
+  }
+
+  if (strcmp(cmd, "cext") == 0) {
+    selectCapacitor(true);
+    sendAck('c');
+    printCapacitorSelectionHuman();
+    return;
+  }
+
+  //-----read capacitor selection state: cstate
+  if (strcmp(cmd, "cstate") == 0) {
+    printCapacitorSelectionHuman();
     return;
   }
 
