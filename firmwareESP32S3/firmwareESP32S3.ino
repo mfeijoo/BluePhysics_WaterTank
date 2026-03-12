@@ -23,8 +23,8 @@ float PSV;
 
 
 // =================== STEPPER PINS ===================
-static const int X_STEP = 19;
-static const int X_DIR  = 20;
+static const int X_STEP = 18;
+static const int X_DIR  = 17;
 
 static const int Y_STEP = 47;
 static const int Y_DIR  = 14;
