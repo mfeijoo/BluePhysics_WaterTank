@@ -3,23 +3,26 @@
 #include "driver/pcnt.h"
 #include <math.h>
 #include <SPI.h>
+#include <Wire.h>
 #include "Adafruit_MCP9808.h"
-#include <ADS1115_WE.h> //we are using the chip ADS1115 and this library to read that chip
+#include <Adafruit_ADS1X15.h>
 
 //=======================================
 //Temperature create objects
 //=======================================
 
 Adafruit_MCP9808 tempsensor = Adafruit_MCP9808();
-ADS1115_WE adc(0x48);
+Adafruit_ADS1115 ads1115;
 
 unsigned int tempbytes;
 
-float PSV;
-#define PSFC 16.256
-#define PSFCind 0.00864
-//#define PSFC 1
-//#define PSFCind 0
+// PS0 conversion calibration: board-level scaling from ADS1115 AIN0 to supply voltage.
+static constexpr float PSFC = 16.256f;
+static constexpr float PSFCind = 0.00864f;
+
+float ps0_voltage = 0.0f;
+float ps0_adc_voltage = 0.0f;
+bool ads1115_ready = false;
 
 
 // =================== STEPPER PINS ===================
@@ -814,11 +817,19 @@ static void detReadAndSendBytes(uint32_t N) {
   Serial.write((uint8_t*)measBuf, N * sizeof(Sample));
 }
 
-static void readPS() {
-  adc.setCompareChannels(ADS1115_COMP_0_GND);
-  adc.startSingleMeasurement();
-  while(adc.isBusy()){};
-  PSV = adc.getResult_V() * PSFC + PSFCind;
+static bool readPS() {
+  if (!ads1115_ready) {
+    return false;
+  }
+
+  int16_t adc0 = ads1115.readADC_SingleEnded(0);
+
+  // For GAIN_ONE on ADS1115, one LSB = 0.125 mV.
+  ps0_adc_voltage = adc0 * 0.000125f;
+
+  // Preserve previous PS0 board calibration used in legacy firmware.
+  ps0_voltage = (ps0_adc_voltage * PSFC) + PSFCind;
+  return true;
 }
 
 
@@ -904,9 +915,13 @@ void setup() {
 
   SPI.endTransaction();
 
-  adc.init();
-  adc.setConvRate(ADS1115_860_SPS);
-  adc.setVoltageRange_mV(ADS1115_RANGE_6144);
+  Wire.begin();
+  ads1115_ready = ads1115.begin(0x48);
+  if (!ads1115_ready) {
+    Serial.println("ADS1115 not found at 0x48");
+  } else {
+    ads1115.setGain(GAIN_ONE);
+  }
 
   //Temperature sensor setup
   tempsensor.begin(0x18);
@@ -961,10 +976,16 @@ void loop() {
 
   // read power supply PS0 (send: ps0;)
   if (cmd[0] == 'p' && cmd[1] == 's' && cmd[2] == '0' && cmd[3] == 0) {
-    readPS();
+    if (!readPS()) {
+      Serial.println("PS0 read failed: ADS1115 not initialized");
+      return;
+    }
+
     Serial.print("PS0 voltage: ");
-    Serial.print(PSV, 4);
-    Serial.println(" V");
+    Serial.print(ps0_voltage, 4);
+    Serial.print(" V (AIN0: ");
+    Serial.print(ps0_adc_voltage, 4);
+    Serial.println(" V)");
     return;
   }
 
