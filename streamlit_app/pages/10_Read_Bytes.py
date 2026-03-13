@@ -1,5 +1,6 @@
 import pandas as pd
 import streamlit as st
+import plotly.express as px
 
 from protocol import counts_to_volts
 
@@ -13,7 +14,7 @@ connected = mgr.is_connected()
 samples_count = st.number_input(
     "Samples -> command readbytes<value>;",
     min_value=1,
-    max_value=5000,
+    max_value=20000,
     value=100,
     step=10,
 )
@@ -49,6 +50,13 @@ if "readbytes_result" in st.session_state:
 
         st.subheader("Measurements")
         st.dataframe(df, use_container_width=True)
+
+        fig1 = px.scatter(df, x="dt_us", y="ch1_V")
+
+        df_zero = df.loc[(df.dt_us < 2200000) & (df.dt_us > 1000), :]
+        st.write(df_zero.ch1_V.describe())
+
+        st.plotly_chart(fig1, use_container_width=True)
 
         st.download_button(
             "Download readbytes CSV",

@@ -1,6 +1,7 @@
 import pandas as pd
 import streamlit as st
 import time
+import plotly.express as px
 
 from protocol import counts_to_volts
 
@@ -90,6 +91,20 @@ if result:
         if rows:
             df = pd.DataFrame(rows)
             st.dataframe(df, use_container_width=True)
+
+            df_cleaned = df.loc[(df.idx < 40000) & (df.dt_us < 36000000) , :]
+
+            df_count_second_shot = df_cleaned.loc[(df_cleaned.dt_us > 29500000) & (df_cleaned.dt_us < 3000000), :]
+
+
+            df_cleaned["ch1_voltage"] = df_cleaned.ch1_counts * -1
+
+            st.dataframe(df_cleaned, use_container_width=True)
+
+            fig1 = px.scatter(df_cleaned, x='idx', y='ch1_V')
+
+            st.plotly_chart(fig1)
+
             st.download_button(
                 "Download stream session CSV",
                 data=df.to_csv(index=False).encode("utf-8"),

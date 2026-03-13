@@ -231,8 +231,9 @@ def decode_stream_packets_from_bytes(raw: bytes | bytearray):
 
         total, remaining = try_parse_stream_end(buf)
         if total is not None:
+            # samples.extend(total)
             total_samples = total
-            buf = remaining
+            # buf = remaining
             changed = True
 
         parsed_samples, remaining = parse_stream_samples_from_buffer(buf)

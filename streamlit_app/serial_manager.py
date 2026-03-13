@@ -316,8 +316,8 @@ class SerialManager:
         n = int(samples_count)
         if n < 1:
             n = 1
-        if n > 5000:
-            n = 5000
+        if n > 30000:
+            n = 30000
 
         try:
             with self.lock:
