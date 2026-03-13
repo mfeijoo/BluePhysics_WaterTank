@@ -1,6 +1,5 @@
 import pandas as pd
 import streamlit as st
-import time
 import plotly.express as px
 
 from protocol import counts_to_volts
@@ -13,9 +12,6 @@ connected = mgr.is_connected()
 
 if "rs_session_result" not in st.session_state:
     st.session_state.rs_session_result = None
-
-if "rs_poll_max_cycles" not in st.session_state:
-    st.session_state.rs_poll_max_cycles = 5
 
 c1, c2, c3 = st.columns(3)
 with c1:
@@ -46,25 +42,13 @@ with c2:
 
 with c3:
     st.write("Capture active:", mgr.rs_capture_active)
-    max_cycles_inputed = st.number_input(
-        "Max poll cycles (debug)",
-        min_value=1,
-        max_value=600,
-        step=1,
-        key="rs_poll_max_cycles",
-        help="How many 1-second polling cycles to run per page execution while capture is active.",
-    )
 
 if mgr.rs_capture_active and connected:
     status_placeholder = st.empty()
-    cycles = 0
-    max_cycles = int(st.session_state.rs_poll_max_cycles)
-
-    while mgr.rs_capture_active and connected and cycles < max_cycles:
-        mgr.poll_rs_capture()
-        status_placeholder.write(f"Buffered bytes: {len(mgr.rs_capture_buf)}")
-        time.sleep(1)
-        cycles += 1
+    while mgr.rs_capture_active and connected:
+        status_placeholder.write(f"Buffered bytes: {mgr.get_rs_capture_buffer_len()}")
+        st.write("Polling is running in a background thread.")
+        break
 
 result = st.session_state.rs_session_result
 if result:

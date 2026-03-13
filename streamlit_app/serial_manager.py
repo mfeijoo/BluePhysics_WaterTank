@@ -40,6 +40,9 @@ class SerialManager:
 
         self.rs_capture_active = False
         self.rs_capture_buf = bytearray()
+        self.rs_capture_lock = threading.Lock()
+        self.rs_capture_thread = None
+        self.rs_capture_stop_evt = threading.Event()
 
     def is_connected(self) -> bool:
         return self.ser is not None and self.ser.is_open
@@ -52,13 +55,33 @@ class SerialManager:
             self.ser.reset_output_buffer()
 
     def disconnect(self):
+        self.rs_capture_stop_evt.set()
+        if self.rs_capture_thread and self.rs_capture_thread.is_alive():
+            self.rs_capture_thread.join(timeout=1.0)
+
         if self.ser:
             try: self.ser.close()
             except Exception: pass
         self.ser = None
 
         self.rs_capture_active = False
-        self.rs_capture_buf = bytearray()
+        with self.rs_capture_lock:
+            self.rs_capture_buf = bytearray()
+
+    def _rs_capture_loop(self):
+        while self.rs_capture_active and not self.rs_capture_stop_evt.is_set() and self.is_connected():
+            got = 0
+            with self.lock:
+                waiting = self.ser.in_waiting
+                if waiting:
+                    chunk = self.ser.read(waiting)
+                    got = len(chunk)
+
+            if got:
+                with self.rs_capture_lock:
+                    self.rs_capture_buf += chunk
+            else:
+                time.sleep(0.005)
 
     def send_cmd(self, cmd: str):
         if not self.is_connected():
@@ -263,8 +286,12 @@ class SerialManager:
             self.ser.write(b"rs;")
             self.ser.flush()
 
-        self.rs_capture_buf = bytearray()
+        self.rs_capture_stop_evt.clear()
+        with self.rs_capture_lock:
+            self.rs_capture_buf = bytearray()
         self.rs_capture_active = True
+        self.rs_capture_thread = threading.Thread(target=self._rs_capture_loop, daemon=True)
+        self.rs_capture_thread.start()
         return {"ok": True}
 
     def poll_rs_capture(self):
@@ -274,7 +301,9 @@ class SerialManager:
         with self.lock:
             waiting = self.ser.in_waiting
             if waiting:
-                self.rs_capture_buf += self.ser.read(waiting)
+                chunk = self.ser.read(waiting)
+                with self.rs_capture_lock:
+                    self.rs_capture_buf += chunk
                 return waiting
         return 0
 
@@ -290,20 +319,30 @@ class SerialManager:
 
             t0 = time.time()
             while time.time() - t0 < timeout_s:
-                got = self.poll_rs_capture()
-                if not got:
-                    time.sleep(0.01)
+                time.sleep(0.01)
 
-            decoded = decode_stream_packets_from_bytes(self.rs_capture_buf)
+            self.rs_capture_stop_evt.set()
+            if self.rs_capture_thread and self.rs_capture_thread.is_alive():
+                self.rs_capture_thread.join(timeout=1.0)
+
+            with self.rs_capture_lock:
+                raw_bytes = bytes(self.rs_capture_buf)
+
+            decoded = decode_stream_packets_from_bytes(raw_bytes)
             return {
                 "ok": True,
-                "raw_bytes": bytes(self.rs_capture_buf),
+                "raw_bytes": raw_bytes,
                 "samples": decoded["samples"],
                 "integration_us": decoded["integration_us"],
                 "samples_count": decoded["total_samples"],
             }
         finally:
             self.rs_capture_active = False
+
+
+    def get_rs_capture_buffer_len(self):
+        with self.rs_capture_lock:
+            return len(self.rs_capture_buf)
 
     def readbytes_binary(self, samples_count: int, timeout_s: float = 30.0):
         """
