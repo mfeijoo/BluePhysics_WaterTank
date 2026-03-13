@@ -53,9 +53,6 @@ if "readbytes_result" in st.session_state:
 
         fig1 = px.scatter(df, x="dt_us", y="ch1_V")
 
-        df_zero = df.loc[(df.dt_us < 2200000) & (df.dt_us > 1000), :]
-        st.write(df_zero.ch1_V.describe())
-
         st.plotly_chart(fig1, use_container_width=True)
 
         st.download_button(

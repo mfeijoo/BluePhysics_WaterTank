@@ -76,16 +76,7 @@ if result:
             df = pd.DataFrame(rows)
             st.dataframe(df, use_container_width=True)
 
-            df_cleaned = df.loc[(df.idx < 40000) & (df.dt_us < 36000000) , :]
-
-            df_count_second_shot = df_cleaned.loc[(df_cleaned.dt_us > 29500000) & (df_cleaned.dt_us < 3000000), :]
-
-
-            df_cleaned["ch1_voltage"] = df_cleaned.ch1_counts * -1
-
-            st.dataframe(df_cleaned, use_container_width=True)
-
-            fig1 = px.scatter(df_cleaned, x='idx', y='ch1_V')
+            fig1 = px.scatter(df, x='dt_us', y='ch1_V')
 
             st.plotly_chart(fig1)
 

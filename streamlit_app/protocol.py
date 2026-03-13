@@ -62,6 +62,7 @@ def parse_stream_samples_from_buffer(buf: bytearray):
             return samples, (buf[-2:] if len(buf) > 1 else bytearray(buf))
         if len(buf) < j + 15:
             return samples, buf[j:]
+        print(buf[j:j+15])
         idx, dt_us, ch0, ch1 = struct.unpack_from("<IIHH", buf, j + 3)
         samples.append(Sample(idx, dt_us, ch0, ch1))
         i = j + 15
@@ -73,8 +74,10 @@ def try_parse_stream_start(buf: bytearray):
     j = buf.find(b"\xAA\x55\x32")
     if j < 0:
         return None, buf
+
     if len(buf) < j + 7:
         return None, buf[j:]
+
     integ_us, = struct.unpack_from("<I", buf, j + 3)
     return integ_us, buf[j + 7:]
 
@@ -86,7 +89,8 @@ def try_parse_stream_end(buf: bytearray):
     if len(buf) < j + 7:
         return None, buf[j:]
     total, = struct.unpack_from("<I", buf, j + 3)
-    return total, buf[j + 7:]
+    print("Got total", total)
+    return total, buf[:j]
 
 
 def try_parse_readbytes_packet(buf: bytearray):
@@ -233,7 +237,7 @@ def decode_stream_packets_from_bytes(raw: bytes | bytearray):
         if total is not None:
             # samples.extend(total)
             total_samples = total
-            # buf = remaining
+            buf = remaining
             changed = True
 
         parsed_samples, remaining = parse_stream_samples_from_buffer(buf)
