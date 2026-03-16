@@ -24,22 +24,6 @@ class ReadBytesPacket:
 
 
 @dataclass
-class AxisBoundsPacket:
-    x_min: int
-    x_max: int
-    y_min: int
-    y_max: int
-    z_min: int
-    z_max: int
-
-
-@dataclass
-class StepTimingPacket:
-    step_pulse_us: int
-    step_gap_us: int
-
-
-@dataclass
 class AckPacket:
     cmd_id: int
 
@@ -125,49 +109,6 @@ def try_parse_readbytes_packet(buf: bytearray):
         integration_us=integration_us,
         samples=samples,
     )
-    return packet, buf[j + total_len:]
-
-
-def try_parse_axis_bounds_packet(buf: bytearray):
-    """
-    AA 55 23 + i32 x_min + i32 x_max + i32 y_min + i32 y_max + i32 z_min + i32 z_max
-    Returns (AxisBoundsPacket|None, remaining_buf)
-    """
-    j = buf.find(b"\xAA\x55\x23")
-    if j < 0:
-        return None, (buf[-2:] if len(buf) > 1 else bytearray(buf))
-
-    total_len = 3 + 24
-    if len(buf) < j + total_len:
-        return None, buf[j:]
-
-    x_min, x_max, y_min, y_max, z_min, z_max = struct.unpack_from("<iiiiii", buf, j + 3)
-    packet = AxisBoundsPacket(
-        x_min=x_min,
-        x_max=x_max,
-        y_min=y_min,
-        y_max=y_max,
-        z_min=z_min,
-        z_max=z_max,
-    )
-    return packet, buf[j + total_len:]
-
-
-def try_parse_step_timing_packet(buf: bytearray):
-    """
-    AA 55 24 + u32 step_pulse_us + u32 step_gap_us
-    Returns (StepTimingPacket|None, remaining_buf)
-    """
-    j = buf.find(b"\xAA\x55\x24")
-    if j < 0:
-        return None, (buf[-2:] if len(buf) > 1 else bytearray(buf))
-
-    total_len = 3 + 8
-    if len(buf) < j + total_len:
-        return None, buf[j:]
-
-    step_pulse_us, step_gap_us = struct.unpack_from("<II", buf, j + 3)
-    packet = StepTimingPacket(step_pulse_us=step_pulse_us, step_gap_us=step_gap_us)
     return packet, buf[j + total_len:]
 
 

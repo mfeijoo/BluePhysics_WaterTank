@@ -2,7 +2,7 @@ import pandas as pd
 import streamlit as st
 import plotly.express as px
 
-from protocol import counts_to_volts
+from streamlit_app.protocol import counts_to_volts
 
 st.title("11) Stream Session Readout (rs / re)")
 st.caption("Start rs; streaming, buffer raw bytes, then stop with re; and decode to a table.")
