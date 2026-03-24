@@ -4,20 +4,21 @@
 #include <math.h>
 #include <SPI.h>
 #include "Adafruit_MCP9808.h"
-#include <ADS1115_WE.h> //we are using the chip ADS1115 and this library to read that chip
+#include "ADS1X15.h"
 
 //=======================================
 //Temperature create objects
 //=======================================
 
 Adafruit_MCP9808 tempsensor = Adafruit_MCP9808();
-ADS1115_WE adc(0x48);
+//ADS1115_WE adc(0x48);
+ADS1115 ADS(0x48);
 
 unsigned int tempbytes;
 
 float PSV;
-#define PSFC 25.171233
-#define PSFCind -106.281
+#define PSFC 16.1817
+#define PSFCind 0.14022
 //#define PSFC 1
 //#define PSFCind 0
 
@@ -834,10 +835,10 @@ static void detReadAndSendBytes(uint32_t N) {
 }
 
 static void readPS() {
-  adc.setCompareChannels(ADS1115_COMP_0_GND);
-  adc.startSingleMeasurement();
-  while(adc.isBusy()){};
-  PSV = adc.getResult_V() * PSFC + PSFCind;
+  int16_t val_0 = ADS.readADC(0);
+  float f = ADS.toVoltage(1); // voltage factor
+  PSV = (val_0 * f) * PSFC + PSFCind;
+
 }
 
 
@@ -927,9 +928,9 @@ void setup() {
 
   SPI.endTransaction();
 
-  adc.init();
-  adc.setConvRate(ADS1115_860_SPS);
-  adc.setVoltageRange_mV(ADS1115_RANGE_6144);
+  Wire.begin();
+  ADS.begin();
+  ADS.setGain(0);
 
   //Temperature sensor setup
   tempsensor.begin(0x18);
