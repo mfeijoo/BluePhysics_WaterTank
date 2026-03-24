@@ -16,8 +16,8 @@ ADS1115_WE adc(0x48);
 unsigned int tempbytes;
 
 float PSV;
-#define PSFC 16.256
-#define PSFCind 0.00864
+#define PSFC 25.171233
+#define PSFCind -106.281
 //#define PSFC 1
 //#define PSFCind 0
 
