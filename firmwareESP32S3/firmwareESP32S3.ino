@@ -897,7 +897,7 @@ static void regulatePS(float targetV) {
     }
 
     setPot(pot_value);
-    delay(3);
+    delay(500);
     readPS();
     printPSRegulationStatus(targetV);
   }
