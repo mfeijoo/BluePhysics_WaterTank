@@ -17,6 +17,10 @@ ADS1115 ADS(0x48);
 unsigned int tempbytes;
 
 float PSV;
+static uint16_t pot_value = 0;
+static const float PS_REG_TOLERANCE_V = 0.05f;
+static const uint16_t POT_MIN = 0;
+static const uint16_t POT_MAX = 1023;
 #define PSFC 16.1817
 #define PSFCind 0.14022
 //#define PSFC 1
@@ -838,9 +842,68 @@ static void readPS() {
   int16_t val_0 = ADS.readADC(0);
   float f = ADS.toVoltage(1); // voltage factor
   PSV = (val_0 * f) * PSFC + PSFCind;
-
 }
 
+static void printPSRegulationStatus(float targetV) {
+  Serial.print("PS regulation -> target: ");
+  Serial.print(targetV, 2);
+  Serial.print(" V, current: ");
+  Serial.print(PSV, 4);
+  Serial.print(" V, pot: ");
+  Serial.println(pot_value);
+}
+
+static void regulatePS(float targetV) {
+  if (targetV < 0.0f) {
+    Serial.println("Error: target PS0 must be >= 0 V");
+    return;
+  }
+
+  const uint16_t maxIterations = 3000;
+  readPS();
+  printPSRegulationStatus(targetV);
+
+  for (uint16_t iter = 0; iter < maxIterations; ++iter) {
+    float errorV = targetV - PSV;
+    if (fabsf(errorV) <= PS_REG_TOLERANCE_V) {
+      Serial.println("PS regulation completed within tolerance (+/-0.05 V)");
+      return;
+    }
+
+    uint16_t step = (uint16_t)fabsf(errorV * 8.0f);
+    if (step < 1) step = 1;
+    if (step > 20) step = 20;
+
+    if (errorV > 0.0f) {
+      if (pot_value >= POT_MAX) {
+        Serial.println("PS regulation stopped: pot reached maximum (1023)");
+        return;
+      }
+      if ((uint32_t)pot_value + step > POT_MAX) {
+        pot_value = POT_MAX;
+      } else {
+        pot_value += step;
+      }
+    } else {
+      if (pot_value <= POT_MIN) {
+        Serial.println("PS regulation stopped: pot reached minimum (0)");
+        return;
+      }
+      if (pot_value < step) {
+        pot_value = POT_MIN;
+      } else {
+        pot_value -= step;
+      }
+    }
+
+    setPot(pot_value);
+    delay(500);
+    readPS();
+    printPSRegulationStatus(targetV);
+  }
+
+  Serial.println("PS regulation stopped: maximum iterations reached");
+}
 
 //============================================================
 // Arduino setup/loop
@@ -1115,10 +1178,25 @@ void loop() {
       return;
     }
 
-    setPot((uint16_t)v);
+    pot_value = (uint16_t)v;
+    setPot(pot_value);
     sendAck('q');
     Serial.print("Potentiometer set to: ");
-    Serial.println((uint16_t)v);
+    Serial.println(pot_value);
+    return;
+  }
+
+  //-----regulate PS0 automatically: r<voltage>; e.g. r42.32;
+  if (cmd[0] == 'r' && cmd[1] >= '0' && cmd[1] <= '9') {
+    char *end = nullptr;
+    float targetV = strtof(cmd + 1, &end);
+    if (end == cmd + 1 || *end != 0) {
+      sendErr('r', 0x01);
+      Serial.println("Error: malformed r command. Use r<target_voltage>; e.g. r42.32;");
+      return;
+    }
+
+    regulatePS(targetV);
     return;
   }
 
