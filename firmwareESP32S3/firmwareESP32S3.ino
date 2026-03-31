@@ -540,8 +540,8 @@ static FramStartupStatus detectFramStatus() {
   fram_ready = fram.begin();
   if (!fram_ready) return FRAM_STATUS_MISSING;
 
-  uint8_t marker0 = fram.read8(0);
-  uint8_t marker1 = fram.read8(1);
+  uint8_t marker0 = fram.read(0);
+  uint8_t marker1 = fram.read(1);
   if (marker0 == FRAM_MARKER_ADDR0 && marker1 == FRAM_MARKER_ADDR1) {
     return FRAM_STATUS_ALREADY_PROGRAMMED;
   }
