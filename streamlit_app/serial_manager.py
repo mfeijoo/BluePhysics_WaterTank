@@ -33,6 +33,15 @@ class SerialManager:
         self.rs_capture_thread = None
         self.rs_capture_stop_evt = threading.Event()
 
+        self.regulate_active = False
+        self._regulate_text_buf = ""
+        self._regulate_lines = []
+        self._regulate_progress = []
+        self._regulate_target_v = None
+        self._regulate_start_v = None
+        self._regulate_started_at = None
+        self._regulate_timeout_s = 0.0
+
     def is_connected(self) -> bool:
         return self.ser is not None and self.ser.is_open
 
@@ -445,9 +454,31 @@ class SerialManager:
 
         return self.read_capacitor_rank(timeout_s=timeout_s)
 
-    def regulate_ps(self, target_v: float, timeout_s: float = 60.0):
+    def _parse_regulate_status_line(self, line: str):
+        rgx = re.compile(r"target:\s*([-+]?\d+(?:\.\d+)?)\s*V,\s*current:\s*([-+]?\d+(?:\.\d+)?)\s*V,\s*pot:\s*(\d+)", re.IGNORECASE)
+        m = rgx.search(line)
+        if not m:
+            return None
+        return {
+            "target_v": float(m.group(1)),
+            "current_v": float(m.group(2)),
+            "pot_value": int(m.group(3)),
+        }
+
+    def start_regulate_ps(self, target_v: float, timeout_s: float = 60.0):
         if not self.is_connected():
             return {"ok": False, "error": "Not connected."}
+        if self.regulate_active:
+            return {"ok": False, "error": "Regulation already active."}
+
+        self.regulate_active = True
+        self._regulate_text_buf = ""
+        self._regulate_lines = []
+        self._regulate_progress = []
+        self._regulate_target_v = float(target_v)
+        self._regulate_start_v = None
+        self._regulate_started_at = time.time()
+        self._regulate_timeout_s = float(timeout_s)
 
         with self.lock:
             self.ser.reset_input_buffer()
@@ -455,17 +486,99 @@ class SerialManager:
             self.ser.write(f"r{float(target_v):.2f};".encode("ascii"))
             self.ser.flush()
 
-        lines = self._read_text_lines_until_idle(timeout_s=timeout_s, idle_s=0.6)
+        return {"ok": True}
 
-        progress = []
-        rgx = re.compile(r"target:\s*([-+]?\d+(?:\.\d+)?)\s*V,\s*current:\s*([-+]?\d+(?:\.\d+)?)\s*V,\s*pot:\s*(\d+)", re.IGNORECASE)
-        for line in lines:
-            m = rgx.search(line)
-            if not m:
-                continue
-            target = float(m.group(1))
-            current = float(m.group(2))
-            pot = int(m.group(3))
-            progress.append({"target_v": target, "current_v": current, "pot_value": pot})
+    def poll_regulate_ps(self):
+        if not self.regulate_active:
+            return {"ok": False, "error": "Regulation is not active."}
 
-        return {"ok": True, "target_v": float(target_v), "lines": lines, "progress": progress}
+        if (time.time() - self._regulate_started_at) > self._regulate_timeout_s:
+            self.regulate_active = False
+            return {
+                "ok": False,
+                "error": "Timeout waiting for regulation completion/error message.",
+                "active": False,
+                "completed": False,
+                "lines": list(self._regulate_lines),
+                "progress": list(self._regulate_progress),
+            }
+
+        with self.lock:
+            n = self.ser.in_waiting
+            chunk = self.ser.read(n) if n else b""
+
+        if chunk:
+            self._regulate_text_buf += chunk.decode("utf-8", errors="replace")
+
+        new_lines = []
+        while "\n" in self._regulate_text_buf:
+            line, self._regulate_text_buf = self._regulate_text_buf.split("\n", 1)
+            clean = line.strip().rstrip("\r")
+            if clean:
+                self._regulate_lines.append(clean)
+                new_lines.append(clean)
+                point = self._parse_regulate_status_line(clean)
+                if point is not None:
+                    if self._regulate_start_v is None:
+                        self._regulate_start_v = float(point["current_v"])
+                    self._regulate_progress.append(point)
+
+        terminal_success = False
+        terminal_error = None
+        for line in new_lines:
+            low = line.lower()
+            if "ps regulation completed within tolerance" in low:
+                terminal_success = True
+                break
+            if low.startswith("error:") or "ps regulation stopped:" in low:
+                terminal_error = line
+                break
+
+        progress_ratio = 0.0
+        if self._regulate_progress:
+            latest = self._regulate_progress[-1]
+            start_v = self._regulate_start_v if self._regulate_start_v is not None else latest["current_v"]
+            target_v = latest["target_v"]
+            denom = abs(target_v - start_v)
+            if denom <= 1e-9:
+                progress_ratio = 1.0
+            else:
+                progress_ratio = max(0.0, min(1.0, abs(latest["current_v"] - start_v) / denom))
+
+        if terminal_success:
+            self.regulate_active = False
+            return {
+                "ok": True,
+                "active": False,
+                "completed": True,
+                "failed": False,
+                "lines_new": new_lines,
+                "lines": list(self._regulate_lines),
+                "progress": list(self._regulate_progress),
+                "progress_ratio": progress_ratio,
+            }
+
+        if terminal_error is not None:
+            self.regulate_active = False
+            return {
+                "ok": False,
+                "active": False,
+                "completed": False,
+                "failed": True,
+                "error": terminal_error,
+                "lines_new": new_lines,
+                "lines": list(self._regulate_lines),
+                "progress": list(self._regulate_progress),
+                "progress_ratio": progress_ratio,
+            }
+
+        return {
+            "ok": True,
+            "active": True,
+            "completed": False,
+            "failed": False,
+            "lines_new": new_lines,
+            "lines": list(self._regulate_lines),
+            "progress": list(self._regulate_progress),
+            "progress_ratio": progress_ratio,
+        }

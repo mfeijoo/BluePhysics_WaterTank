@@ -1,3 +1,5 @@
+import time
+
 import streamlit as st
 
 from streamlit_app.config_store import load_config, save_config
@@ -103,25 +105,40 @@ with c4:
 
 if st.button("Apply regulate to device", use_container_width=True, disabled=not mgr.is_connected()):
     status = st.empty()
+    live_status = st.empty()
     progress_bar = st.progress(0.0, text="Running regulation...")
 
-    result = mgr.regulate_ps(float(regulate_target_v), timeout_s=90.0)
-    if not result.get("ok"):
+    start_result = mgr.start_regulate_ps(float(regulate_target_v), timeout_s=90.0)
+    if not start_result.get("ok"):
         progress_bar.progress(0.0, text="Regulation failed")
-        st.error(result.get("error", "Failed to run regulation."))
+        st.error(start_result.get("error", "Failed to start regulation."))
     else:
-        points = result.get("progress", [])
-        if points:
-            first_err = abs(points[0]["target_v"] - points[0]["current_v"])
-            for pt in points:
-                curr_err = abs(pt["target_v"] - pt["current_v"])
-                ratio = 1.0 if first_err <= 1e-9 else max(0.0, min(1.0, 1.0 - (curr_err / first_err)))
-                progress_bar.progress(ratio, text=f"Current {pt['current_v']:.3f} V / target {pt['target_v']:.2f} V")
-            progress_bar.progress(1.0, text="Regulation command completed")
-            status.success("Regulation completed. Progress was parsed from firmware status messages.")
-        else:
-            progress_bar.progress(1.0, text="Regulation command completed (no incremental status from firmware)")
-            status.info("Regulation command completed, but no progress lines were parsed from firmware output.")
+        while True:
+            poll = mgr.poll_regulate_ps()
+            points = poll.get("progress", [])
+            if points:
+                latest = points[-1]
+                progress_bar.progress(
+                    float(poll.get("progress_ratio", 0.0)),
+                    text=f"Current {latest['current_v']:.3f} V / target {latest['target_v']:.2f} V",
+                )
+                live_status.write(f"Pot: {latest['pot_value']} | Parsed points: {len(points)}")
+
+            if not poll.get("active", False):
+                if poll.get("ok") and poll.get("completed"):
+                    progress_bar.progress(1.0, text="Regulation completed")
+                    status.success("Regulation completed within tolerance.")
+                else:
+                    progress_bar.progress(float(poll.get("progress_ratio", 0.0)), text="Regulation stopped with error")
+                    status.error(poll.get("error", "Regulation failed."))
+
+                lines = poll.get("lines", [])
+                if lines:
+                    with st.expander("Firmware regulate log", expanded=False):
+                        st.code("\n".join(lines), language="text")
+                break
+
+            time.sleep(0.1)
 
 st.divider()
 if st.button("Save settings", use_container_width=True):
