@@ -5,14 +5,26 @@
 #include <SPI.h>
 #include "Adafruit_MCP9808.h"
 #include "ADS1X15.h"
+#include <Adafruit_FRAM_I2C.h>
 
 //=======================================
 //Temperature create objects
 //=======================================
 
 Adafruit_MCP9808 tempsensor = Adafruit_MCP9808();
+Adafruit_FRAM_I2C fram = Adafruit_FRAM_I2C();
 //ADS1115_WE adc(0x48);
 ADS1115 ADS(0x48);
+
+static const uint8_t FRAM_MARKER_ADDR0 = 0xA5;
+static const uint8_t FRAM_MARKER_ADDR1 = 0x5A;
+static bool fram_ready = false;
+
+enum FramStartupStatus : uint8_t {
+  FRAM_STATUS_MISSING = 0,
+  FRAM_STATUS_PRESENT_NOT_PROGRAMMED = 1,
+  FRAM_STATUS_ALREADY_PROGRAMMED = 2
+};
 
 unsigned int tempbytes;
 
@@ -524,6 +536,46 @@ static void sendErr(uint8_t cmd_id, uint8_t err_code) {
   Serial.write(err_code);
 }
 
+static FramStartupStatus detectFramStatus() {
+  fram_ready = fram.begin();
+  if (!fram_ready) return FRAM_STATUS_MISSING;
+
+  uint8_t marker0 = fram.read(0);
+  uint8_t marker1 = fram.read(1);
+  if (marker0 == FRAM_MARKER_ADDR0 && marker1 == FRAM_MARKER_ADDR1) {
+    return FRAM_STATUS_ALREADY_PROGRAMMED;
+  }
+
+  return FRAM_STATUS_PRESENT_NOT_PROGRAMMED;
+}
+
+static void printFramStatusHuman(FramStartupStatus status) {
+  Serial.print("FRAM status: ");
+  if (status == FRAM_STATUS_MISSING) {
+    Serial.println("missing/init failed");
+  } else if (status == FRAM_STATUS_PRESENT_NOT_PROGRAMMED) {
+    Serial.println("present/not programmed");
+  } else {
+    Serial.println("present/already programmed");
+  }
+}
+
+static void sendFramStatusPacket(FramStartupStatus status) {
+  if (error_messages_human) {
+    printFramStatusHuman(status);
+    return;
+  }
+
+  if (status == FRAM_STATUS_MISSING) {
+    sendErr('f', 0x01);
+  } else {
+    sendAck('f');
+  }
+
+  sendPktHeader(0x40);
+  Serial.write((uint8_t)status);
+}
+
 static void sendCoordsPacket(uint8_t type) {
   int32_t x = pcntRead32(pcX);
   int32_t y = yCoord();
@@ -992,6 +1044,9 @@ void setup() {
   SPI.endTransaction();
 
   Wire.begin();
+  FramStartupStatus fram_status = detectFramStatus();
+  sendFramStatusPacket(fram_status);
+
   ADS.begin();
   ADS.setGain(0);
 
@@ -1021,6 +1076,13 @@ void loop() {
   if (!readCmd(cmd, sizeof(cmd))) return;
   if (cmd[0] == 0) return;
 
+  // FRAM status query (always prints a human-readable line)
+  if (cmd[0] == 'f' && cmd[1] == 0) {
+    FramStartupStatus fram_status = detectFramStatus();
+    sendAck('f');
+    printFramStatusHuman(fram_status);
+    return;
+  }
 
   //measure temperature manually
   if (cmd[0] == 't' && cmd[1] == 0) {
