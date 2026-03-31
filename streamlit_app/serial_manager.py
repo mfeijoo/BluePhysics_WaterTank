@@ -1,5 +1,5 @@
 # serial_manager.py
-import time, threading, queue, struct
+import time, threading, queue, struct, re
 import serial
 import serial.tools.list_ports
 from protocol import (
@@ -362,3 +362,110 @@ class SerialManager:
             time.sleep(0.005)
 
         return {"ok": False, "error": "Timeout waiting for ACK/ERR packet."}
+
+    def _read_text_lines_until_idle(self, timeout_s: float = 3.0, idle_s: float = 0.25):
+        if not self.is_connected():
+            return []
+
+        t0 = time.time()
+        last_rx = t0
+        text_buf = ""
+        lines = []
+
+        while time.time() - t0 < timeout_s:
+            got = 0
+            with self.lock:
+                n = self.ser.in_waiting
+                if n:
+                    chunk = self.ser.read(n)
+                    got = len(chunk)
+                    text_buf += chunk.decode("utf-8", errors="replace")
+
+            if got:
+                last_rx = time.time()
+                while "\n" in text_buf:
+                    line, text_buf = text_buf.split("\n", 1)
+                    clean = line.strip().rstrip("\r")
+                    if clean:
+                        lines.append(clean)
+            elif lines and (time.time() - last_rx) >= idle_s:
+                break
+
+            time.sleep(0.01)
+
+        trailing = text_buf.strip().rstrip("\r")
+        if trailing:
+            lines.append(trailing)
+
+        return lines
+
+    def read_capacitor_rank(self, timeout_s: float = 2.0):
+        if not self.is_connected():
+            return {"ok": False, "error": "Not connected."}
+
+        with self.lock:
+            self.ser.reset_input_buffer()
+            self.ser.reset_output_buffer()
+            self.ser.write(b"cstate;")
+            self.ser.flush()
+
+        lines = self._read_text_lines_until_idle(timeout_s=timeout_s, idle_s=0.2)
+        rank = None
+        for line in lines:
+            low = line.lower()
+            if "capacitor selection:" in low:
+                if "internal" in low:
+                    rank = 1
+                elif "external" in low:
+                    rank = 2
+
+        if rank is None:
+            return {"ok": False, "error": "Could not parse capacitor state from device response.", "lines": lines}
+
+        return {"ok": True, "rank_value": rank, "lines": lines}
+
+    def apply_capacitor_rank(self, rank_value: int, timeout_s: float = 2.0):
+        if not self.is_connected():
+            return {"ok": False, "error": "Not connected."}
+
+        rank = int(rank_value)
+        if rank not in (1, 2):
+            return {"ok": False, "error": "Rank must be 1 (internal) or 2 (external)."}
+        cmd = b"cint;" if rank == 1 else b"cext;"
+
+        with self.lock:
+            self.ser.reset_input_buffer()
+            self.ser.reset_output_buffer()
+            self.ser.write(cmd)
+            self.ser.flush()
+
+        ack = self._wait_for_ack_or_err(timeout_s=timeout_s)
+        if not ack.get("ok"):
+            return ack
+
+        return self.read_capacitor_rank(timeout_s=timeout_s)
+
+    def regulate_ps(self, target_v: float, timeout_s: float = 60.0):
+        if not self.is_connected():
+            return {"ok": False, "error": "Not connected."}
+
+        with self.lock:
+            self.ser.reset_input_buffer()
+            self.ser.reset_output_buffer()
+            self.ser.write(f"r{float(target_v):.2f};".encode("ascii"))
+            self.ser.flush()
+
+        lines = self._read_text_lines_until_idle(timeout_s=timeout_s, idle_s=0.6)
+
+        progress = []
+        rgx = re.compile(r"target:\s*([-+]?\d+(?:\.\d+)?)\s*V,\s*current:\s*([-+]?\d+(?:\.\d+)?)\s*V,\s*pot:\s*(\d+)", re.IGNORECASE)
+        for line in lines:
+            m = rgx.search(line)
+            if not m:
+                continue
+            target = float(m.group(1))
+            current = float(m.group(2))
+            pot = int(m.group(3))
+            progress.append({"target_v": target, "current_v": current, "pot_value": pot})
+
+        return {"ok": True, "target_v": float(target_v), "lines": lines, "progress": progress}

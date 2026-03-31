@@ -20,6 +20,9 @@ if "acr_value" not in st.session_state:
 if "rank_value" not in st.session_state:
     st.session_state.rank_value = int(st.session_state.app_config.get("rank_value", 1))
 
+if "regulate_target_v" not in st.session_state:
+    st.session_state.regulate_target_v = float(st.session_state.app_config.get("regulate_target_v", 42.32))
+
 def render_home() -> None:
     st.title("Blue Physics – Control Suite")
     st.write("Use the sidebar to navigate pages.")
