@@ -1006,6 +1006,9 @@ void setup() {
   tempsensor.wake(); //this line on
   Serial.println("Temp Sensor ready");
 
+  //Set the PS to 30V at start up
+  regulatePS(30.0);
+
 }
 
 
