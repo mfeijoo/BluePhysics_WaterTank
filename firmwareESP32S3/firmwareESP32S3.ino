@@ -424,6 +424,11 @@ static bool tryFramWriteCommand(char *cmd) {
 
   sendAck('w');
 
+  Serial.print("FRAM write OK: addr=");
+  Serial.print((uint16_t)address);
+  Serial.print(" value=");
+  Serial.println(stored);
+
   // typed packet: address (uint16_t) + stored value (uint8_t)
   sendPktHeader(0x41);
   uint16_t addr16 = (uint16_t)address;
