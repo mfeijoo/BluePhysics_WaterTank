@@ -4,27 +4,32 @@
 #include <math.h>
 #include <SPI.h>
 #include "Adafruit_MCP9808.h"
-#include <ADS1115_WE.h> //we are using the chip ADS1115 and this library to read that chip
+#include "ADS1X15.h"
 
 //=======================================
 //Temperature create objects
 //=======================================
 
 Adafruit_MCP9808 tempsensor = Adafruit_MCP9808();
-ADS1115_WE adc(0x48);
+//ADS1115_WE adc(0x48);
+ADS1115 ADS(0x48);
 
 unsigned int tempbytes;
 
 float PSV;
-#define PSFC 16.256
-#define PSFCind 0.00864
+static uint16_t pot_value = 0;
+static const float PS_REG_TOLERANCE_V = 0.05f;
+static const uint16_t POT_MIN = 0;
+static const uint16_t POT_MAX = 1023;
+#define PSFC 16.1817
+#define PSFCind 0.14022
 //#define PSFC 1
 //#define PSFCind 0
 
 
 // =================== STEPPER PINS ===================
-static const int X_STEP = 19;
-static const int X_DIR  = 20;
+static const int X_STEP = 18;
+static const int X_DIR  = 17;
 
 static const int Y_STEP = 47;
 static const int Y_DIR  = 14;
@@ -105,6 +110,7 @@ static const int CS_POT = 36;
 // Integrator control pins (set to your wiring)
 static const int RST_PIN  = 40;
 static const int HOLD_PIN = 41;
+static const int CAP_SEL_0 = 2;
 
 // Timing
 static volatile uint32_t integraltimemicros = 700; // default 700 us, can set to 200 us
@@ -639,6 +645,24 @@ static void setPot(uint16_t value) {
   SPI.endTransaction();
 }
 
+// Select integrator capacitor using CAP_SEL_0 only.
+// CAP_SEL_0 LOW  -> internal capacitor selected.
+// CAP_SEL_0 HIGH -> external capacitor selected.
+static void selectCapacitor(bool externalCap) {
+  digitalWrite(CAP_SEL_0, externalCap ? HIGH : LOW);
+}
+
+static void printCapacitorSelectionHuman() {
+  int capSelState = digitalRead(CAP_SEL_0);
+
+  Serial.print("Capacitor selection: ");
+  if (capSelState == HIGH) {
+    Serial.println("external (CAP_SEL_0=HIGH)");
+  } else {
+    Serial.println("internal (CAP_SEL_0=LOW)");
+  }
+}
+
 // One integration sample: HOLD high -> read -> reset -> HOLD low
 static void detReadOnce() {
   digitalWrite(HOLD_PIN, HIGH);
@@ -815,12 +839,71 @@ static void detReadAndSendBytes(uint32_t N) {
 }
 
 static void readPS() {
-  adc.setCompareChannels(ADS1115_COMP_0_GND);
-  adc.startSingleMeasurement();
-  while(adc.isBusy()){};
-  PSV = adc.getResult_V() * PSFC + PSFCind;
+  int16_t val_0 = ADS.readADC(0);
+  float f = ADS.toVoltage(1); // voltage factor
+  PSV = (val_0 * f) * PSFC + PSFCind;
 }
 
+static void printPSRegulationStatus(float targetV) {
+  Serial.print("PS regulation -> target: ");
+  Serial.print(targetV, 2);
+  Serial.print(" V, current: ");
+  Serial.print(PSV, 4);
+  Serial.print(" V, pot: ");
+  Serial.println(pot_value);
+}
+
+static void regulatePS(float targetV) {
+  if (targetV < 0.0f) {
+    Serial.println("Error: target PS0 must be >= 0 V");
+    return;
+  }
+
+  const uint16_t maxIterations = 3000;
+  readPS();
+  printPSRegulationStatus(targetV);
+
+  for (uint16_t iter = 0; iter < maxIterations; ++iter) {
+    float errorV = targetV - PSV;
+    if (fabsf(errorV) <= PS_REG_TOLERANCE_V) {
+      Serial.println("PS regulation completed within tolerance (+/-0.05 V)");
+      return;
+    }
+
+    uint16_t step = (uint16_t)fabsf(errorV * 8.0f);
+    if (step < 1) step = 1;
+    if (step > 20) step = 20;
+
+    if (errorV > 0.0f) {
+      if (pot_value >= POT_MAX) {
+        Serial.println("PS regulation stopped: pot reached maximum (1023)");
+        return;
+      }
+      if ((uint32_t)pot_value + step > POT_MAX) {
+        pot_value = POT_MAX;
+      } else {
+        pot_value += step;
+      }
+    } else {
+      if (pot_value <= POT_MIN) {
+        Serial.println("PS regulation stopped: pot reached minimum (0)");
+        return;
+      }
+      if (pot_value < step) {
+        pot_value = POT_MIN;
+      } else {
+        pot_value -= step;
+      }
+    }
+
+    setPot(pot_value);
+    delay(500);
+    readPS();
+    printPSRegulationStatus(targetV);
+  }
+
+  Serial.println("PS regulation stopped: maximum iterations reached");
+}
 
 //============================================================
 // Arduino setup/loop
@@ -852,8 +935,12 @@ void setup() {
 
   pinMode(RST_PIN, OUTPUT);
   pinMode(HOLD_PIN, OUTPUT);
+  pinMode(CAP_SEL_0, OUTPUT);
   digitalWrite(RST_PIN, HIGH);
   digitalWrite(HOLD_PIN, LOW);
+
+  // Default capacitor selection on startup: internal capacitor.
+  selectCapacitor(false);
 
   // SPI
   SPI.begin(DET_SCK, DET_MISO, DET_MOSI);
@@ -904,9 +991,9 @@ void setup() {
 
   SPI.endTransaction();
 
-  adc.init();
-  adc.setConvRate(ADS1115_860_SPS);
-  adc.setVoltageRange_mV(ADS1115_RANGE_6144);
+  Wire.begin();
+  ADS.begin();
+  ADS.setGain(0);
 
   //Temperature sensor setup
   tempsensor.begin(0x18);
@@ -918,6 +1005,9 @@ void setup() {
   //  3    0.0625°C    250 ms
   tempsensor.wake(); //this line on
   Serial.println("Temp Sensor ready");
+
+  //Set the PS to 30V at start up
+  regulatePS(30.0);
 
 }
 
@@ -1039,6 +1129,27 @@ void loop() {
     return;
   }
 
+  //-----select capacitor: cint (CAP_SEL_0 LOW), cext (CAP_SEL_0 HIGH)
+  if (strcmp(cmd, "cint") == 0) {
+    selectCapacitor(false);
+    sendAck('c');
+    printCapacitorSelectionHuman();
+    return;
+  }
+
+  if (strcmp(cmd, "cext") == 0) {
+    selectCapacitor(true);
+    sendAck('c');
+    printCapacitorSelectionHuman();
+    return;
+  }
+
+  //-----read capacitor selection state: cstate
+  if (strcmp(cmd, "cstate") == 0) {
+    printCapacitorSelectionHuman();
+    return;
+  }
+
   //-----toggle error mode: eh0 (binary), eh1 (human-readable)
   if (cmd[0] == 'e' && cmd[1] == 'h' && (cmd[2] == '0' || cmd[2] == '1') && cmd[3] == 0) {
     error_messages_human = (cmd[2] == '1');
@@ -1070,10 +1181,25 @@ void loop() {
       return;
     }
 
-    setPot((uint16_t)v);
+    pot_value = (uint16_t)v;
+    setPot(pot_value);
     sendAck('q');
     Serial.print("Potentiometer set to: ");
-    Serial.println((uint16_t)v);
+    Serial.println(pot_value);
+    return;
+  }
+
+  //-----regulate PS0 automatically: r<voltage>; e.g. r42.32;
+  if (cmd[0] == 'r' && cmd[1] >= '0' && cmd[1] <= '9') {
+    char *end = nullptr;
+    float targetV = strtof(cmd + 1, &end);
+    if (end == cmd + 1 || *end != 0) {
+      sendErr('r', 0x01);
+      Serial.println("Error: malformed r command. Use r<target_voltage>; e.g. r42.32;");
+      return;
+    }
+
+    regulatePS(targetV);
     return;
   }
 
