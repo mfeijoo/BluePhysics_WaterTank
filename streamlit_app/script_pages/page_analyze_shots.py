@@ -2,22 +2,16 @@ import pandas as pd
 import numpy as np
 import streamlit as st
 import plotly.express as px
-import plotly.graph_objects as go
 from glob import glob
 import os
 import re
 from datetime import datetime
-
-from access_logging import log_page_access, log_user_action
 
 def show():
 
     st.logo(image="images/logo.png", icon_image="images/icon.png")
 
     st.title('Blue Physics Analysis')
-
-    log_page_access("shots", True)
-    log_user_action("Loaded analyze Shots page.", True)
 
     files = glob(os.path.join("Measurements", "Shots", "*.csv"))
 
@@ -48,6 +42,9 @@ def show():
         firstlines = file0.readlines()
         file0.close()
         for line in firstlines:
+            if line.startswith("ACR used:"):
+                acr_used = line[11:]
+        for line in firstlines:
             if line.startswith("Rank used:"):
                 rank = line[11:-1]
                 st.write(f'Rank uses: {rank}')
@@ -60,16 +57,21 @@ def show():
             capacitor = 60/1000
         elif rank == '8':
             capacitor = 1.8
+        for line in firstlines:
+            if line.startswith("Integration time:"):
+                integration_time = line[18:-3]
         for n, line in enumerate(firstlines):
-            if line.startswith('Number,Time'):
+            if line.startswith('idx,dt_us'):
                 lines_to_skip = n
                 break
         #then read the data frame
         df = pd.read_csv(file, skiprows = lines_to_skip)
-        return df, capacitor
+        return df, capacitor, int(integration_time)
 
-    dforig, capacitor = read_dataframe(os.path.join("Measurements", "Shots", filenow))
-    df = dforig.loc[:, ['Number', 'Time', 'Temp', 'ch0', 'ch1']]
+    dforig, capacitor, inegration_time_us = read_dataframe(os.path.join("Measurements", "Shots", filenow))
+    dforig["dt_s"] = dforig.df_us / 1000000
+    df = dforig.loc[:, ['idx', 'dt_s', 'ch0_V', 'ch1_V']]
+    df.columns = ['Number', 'Time', 'ch0', 'ch1']
     st.dataframe(df)
 
     intTime = df.Time.diff().mean() * 1000000
@@ -98,7 +100,7 @@ def show():
 
     group = st.checkbox('group every 300 ms', value = True)
     if group:
-        dfz['chunk'] = dfz.Number // int(300000/750)
+        dfz['chunk'] = dfz.Number // int(300000/inegration_time_us)
         #dfz['chunk'] = dfz.Number // 5
         dfg = dfz.groupby('chunk').agg({'Time':np.median, 'ch0z':np.sum, 'ch1z':np.sum})
         dfg0 = dfg.loc[:,['Time', 'ch0z']]

@@ -205,6 +205,25 @@ class SerialManager:
             self.rs_capture_active = False
 
 
+    def get_rs_capture_buf(self):
+        if not self.rs_capture_buf or len(self.rs_capture_buf) == 0:
+            return{"ok": False, "error": "No capture buffer found"}
+
+        with self.rs_capture_lock:
+            raw_bytes = bytes(self.rs_capture_buf)
+
+        decoded = decode_stream_packets_from_bytes(raw_bytes)
+
+        return {
+            "ok": True,
+            "raw_bytes": raw_bytes,
+            "samples": decoded["samples"],
+            "integration_us": decoded["integration_us"],
+            "samples_count": decoded["total_samples"],
+        }
+
+
+
     def get_rs_capture_buffer_len(self):
         with self.rs_capture_lock:
             return len(self.rs_capture_buf)

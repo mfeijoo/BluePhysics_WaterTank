@@ -8,16 +8,11 @@ import os
 import re
 from datetime import datetime
 
-from access_logging import log_page_access, log_user_action
-
 def show():
 
     st.title('Calculate integrals of shots')
 
     st.logo(image="images/logo.png", icon_image="images/icon.png")
-
-    log_page_access("shots_integrals", True)
-    log_user_action("Loaded Shots Calc Integrals page.", True)
 
     files = glob(os.path.join("Measurements", "Shots", "*.csv"))
 
@@ -36,8 +31,6 @@ def show():
 
     filenames = [os.path.basename(file) for file in files]
 
-    filenames = [s for s in filenames if not s.startswith("dfOF")]
-
     filename = st.selectbox('Select file to calculate integrals', filenames)
 
     @st.cache_data
@@ -46,7 +39,14 @@ def show():
         file0 = open(file)
         firstlines = file0.readlines()
         file0.close()
-        rank = '2'
+        for line in firstlines:
+            if line.startswith("ACR used:"):
+                acr_used = line[11:]
+        for line in firstlines:
+            if line.startswith("Rank used:"):
+                rank = line[11:-1]
+                st.write(f'Rank uses: {rank}')
+                break
         if rank == '1':
             capacitor = 10/1000
         elif rank == '2':
@@ -55,16 +55,21 @@ def show():
             capacitor = 60/1000
         elif rank == '8':
             capacitor = 1.8
+        for line in firstlines:
+            if line.startswith("Integration time:"):
+                integration_time = line[18:-3]
         for n, line in enumerate(firstlines):
-            if line.startswith('Number,Time'):
+            if line.startswith('idx,dt_us'):
                 lines_to_skip = n
                 break
         #then read the data frame
         df = pd.read_csv(file, skiprows = lines_to_skip)
-        return df, capacitor
+        return df, capacitor, int(integration_time)
 
-    df, capacitor = read_dataframe(os.path.join("Measurements", "Shots", filename))
-    df = df.loc[:, ['Number', 'Time', 'ch0', 'ch1']]
+    dforig, capacitor, inegration_time_us = read_dataframe(os.path.join("Measurements", "Shots", filename))
+    dforig["dt_s"] = dforig.df_us / 1000000
+    df = dforig.loc[:, ['idx', 'dt_s', 'ch0_V', 'ch1_V']]
+    df.columns = ['Number', 'Time', 'ch0', 'ch1']
 
 
     cutoff = st.selectbox('cut off', [0.5, 8, 10, 20, 40, 100, 150], index = 4)

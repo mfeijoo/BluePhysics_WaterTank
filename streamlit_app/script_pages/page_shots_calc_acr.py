@@ -8,15 +8,11 @@ import plotly.graph_objects as go
 from glob import glob
 from datetime import datetime
 
-from access_logging import log_user_action
-
 def show():
 
     st.logo(image="images/logo.png", icon_image="images/icon.png")
 
     st.title('Calculate ACR')
-
-    log_user_action("Loaded Calculate ACR page.", True)
 
     def R2(x, y, xmax=False, r2offset=0):
         coeff, cov = np.polyfit(x, y, 1, cov=True)
@@ -55,53 +51,59 @@ def show():
 
     filenames = [os.path.basename(file) for file in files]
 
-    filenames = [s for s in filenames if not s.startswith("dfOF")]
-
     selected_filenames = st.multiselect('Select files to calculate ACR', filenames)
 
 
     @st.cache_data
     def read_dataframes(files):
         dfs = []
-        capacitor = None
+        capacitors = []
+        integration_times = []
         for file in files:
             file = os.path.join("Measurements", "Shots", file)
             # confirm the rows to skip
             file0 = open(file)
             firstlines = file0.readlines()
             file0.close()
-            if capacitor is None:
-                for line in firstlines:
-                    if line.startswith("Rank used:"):
-                        rank = line[11:-1]
-                        st.write(f'Rank uses: {rank}')
-                        break
-                if rank == '1':
-                    capacitor = 10 / 1000
-                elif rank == '2':
-                    capacitor = 30 / 1000
-                elif rank == '4':
-                    capacitor = 60 / 1000
-                elif rank == '8':
-                    capacitor = 1.8
+            for line in firstlines:
+                if line.startswith("Rank used:"):
+                    rank = line[11:-1]
+                    break
+            if rank == '1':
+                capacitors.append(10 / 1000)
+            elif rank == '2':
+                capacitors.append(30 / 1000)
+            elif rank == '4':
+                capacitors.append(60 / 1000)
+            elif rank == '8':
+                capacitors.append(1.8)
+            for line in firstlines:
+                if line.startswith("Integration time:"):
+                    integration_time = line[18:-3]
+                    integration_times.append(int(integration_time))
             for n, line in enumerate(firstlines):
-                if line.startswith('Number,Time'):
+                if line.startswith('idx,dt_us'):
                     lines_to_skip = n
                     break
             df = pd.read_csv(file, skiprows=lines_to_skip)
             dfs.append(df)
-        return dfs, capacitor
+        return dfs, capacitors, integration_times
 
 
-    dfs, capacitor = read_dataframes(selected_filenames)
+    dfs, capacitors, integration_times = read_dataframes(selected_filenames)
 
     cutoff = st.selectbox('cut off', [0.5, 8, 10, 20, 40, 100, 150], index=4)
 
     OF = st.number_input('Known OF (1 means it will be used the gantry rotation method)', format='%.3f')
 
     dfis = []
-    for df_orig in dfs:
-        df = df_orig.loc[:, ['Number', 'Time', 'Temp', 'ch0', 'ch1']]
+    for i in range(len(dfs)):
+        df_orig = dfs[i]
+        capacitor = capacitors[i]
+        integration_time = integration_times[i]
+        df_orig["dt_s"] = df_orig.df_us / 1000000
+        df = df_orig.loc[:, ['idx', 'dt_s', 'ch0_V', 'ch1_V']]
+        df.columns = ['Number', 'Time', 'ch0', 'ch1']
         last_time = df.iloc[-1, 1]
         zeros = df.loc[(df.Time < 1) | (df.Time > last_time - 1), 'ch0':].mean()
         dfchz = df.loc[:, 'ch0':] - zeros
@@ -111,7 +113,7 @@ def show():
         dfz['sensorcharge'] = dfz.ch0z * capacitor
         dfz['cerenkovcharge'] = dfz.ch1z * capacitor
 
-        dfz['chunk'] = dfz.Number // (300000 / 700)
+        dfz['chunk'] = dfz.Number // (300000 / integration_time)
         group = dfz.groupby('chunk')
         dfg = group.agg({'Time': np.median,
                          'ch0z': np.sum,

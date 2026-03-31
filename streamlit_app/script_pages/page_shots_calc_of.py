@@ -9,18 +9,13 @@ import re
 import yaml
 from datetime import datetime
 
-from access_logging import log_page_access, log_user_action
-
 def show():
 
     st.title('Calculate OF')
 
     st.logo(image="images/logo.png", icon_image="images/icon.png")
 
-    log_page_access("shots_OF", False)
-    log_user_action("Loaded Shots Calc OF page.", False)
-
-    files = glob(os.path.join("Measurements", "Shots", "dfOF*"))
+    files = glob(os.path.join("Measurements", "OF_tables", "*.csv"))
 
     # sort by date parsed from filename (assuming format YYYY-MM-DD_HH-MM-SS.csv)
     def extract_datetime_from_name(path):
