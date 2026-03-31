@@ -4,6 +4,7 @@ from pathlib import Path
 DEFAULT_CONFIG = {
     "acr_value": 1.0,
     "rank_value": 1,
+    "regulate_target_v": 42.32,
 }
 
 CONFIG_PATH = Path(__file__).resolve().parent / "user_config.json"
