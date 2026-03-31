@@ -82,8 +82,8 @@ def show():
                 header = f"""Output Factor
 Date and time: {current_time}
 Description: {description_addition}
-ACR used: {device.acr_value}
-Rank used: {device.rank_used}
+ACR used: {st.session_state.get("acr_value", 1.0)}
+Rank used: {st.session_state.get("rank_value", 1)}
 Integration time: {integration_value} us
 """
                 # file_name = f"Output_Factor_{energy_used}_{field_size_cm}x{field_size_cm}_{current_time}.csv"
