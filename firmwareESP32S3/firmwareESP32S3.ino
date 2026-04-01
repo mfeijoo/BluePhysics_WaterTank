@@ -3,6 +3,7 @@
 #include "driver/pcnt.h"
 #include <math.h>
 #include <SPI.h>
+#include <Wire.h>
 #include "Adafruit_MCP9808.h"
 #include "ADS1X15.h"
 #include <Adafruit_FRAM_I2C.h>
@@ -34,6 +35,11 @@ static uint16_t pot_value = 0;
 static const float PS_REG_TOLERANCE_V = 0.05f;
 static const uint16_t POT_MIN = 0;
 static const uint16_t POT_MAX = 1023;
+
+// AD5675 DAC (dark-current offset compensation)
+static const uint8_t AD5675_ADDR = 0x0F;
+static const uint8_t AD5675_CMD_WRITE_UPDATE = 0x3;
+static uint16_t dark_current_code[2] = {0, 0};
 #define PSFC 16.1817
 #define PSFCind 0.14022
 //#define PSFC 1
@@ -296,6 +302,19 @@ static double stepsToPcnt32Delta(int32_t steps) {
 static void sendErr(uint8_t cmd_id, uint8_t err_code);
 static void sendPcnt32LimitsPacket();
 static void sendStepDelaysPacket();
+
+static uint8_t ad5675_write_update(uint8_t ch, uint16_t code) {
+  if (ch > 1) return 0;
+
+  Wire.beginTransmission(AD5675_ADDR);
+  Wire.write((uint8_t)((AD5675_CMD_WRITE_UPDATE << 4) | ch));
+  Wire.write((uint8_t)(code >> 8));
+  Wire.write((uint8_t)(code & 0xFF));
+
+  uint8_t tx_status = (uint8_t)Wire.endTransmission();
+  if (tx_status == 0) dark_current_code[ch] = code;
+  return (tx_status == 0) ? 1 : 0;
+}
 
 static bool parseLimitValue(char *&p, int32_t &out, bool requireComma) {
   char *end = nullptr;
@@ -1221,6 +1240,46 @@ void loop() {
     } else {
       sendAck('h');
     }
+    return;
+  }
+
+  //-----set dark-current DAC code: dc<channel>,<code>; e.g. dc0,3000;
+  if (cmd[0] == 'd' && cmd[1] == 'c') {
+    char *p = cmd + 2;
+    char *end = nullptr;
+
+    long ch = strtol(p, &end, 10);
+    if (end == p || *end != ',') {
+      sendErr('c', 0x01);
+      Serial.println("Error: malformed dc command. Use dc<0|1>,<0-65535>;");
+      return;
+    }
+
+    p = end + 1;
+    long code = strtol(p, &end, 10);
+    if (end == p || *end != 0) {
+      sendErr('c', 0x01);
+      Serial.println("Error: malformed dc command. Use dc<0|1>,<0-65535>;");
+      return;
+    }
+
+    if ((ch != 0 && ch != 1) || code < 0 || code > 65535) {
+      sendErr('c', 0x02);
+      Serial.println("Error: dc values out of range. Channel must be 0/1 and code 0..65535.");
+      return;
+    }
+
+    if (!ad5675_write_update((uint8_t)ch, (uint16_t)code)) {
+      sendErr('c', 0x03);
+      Serial.println("Error: AD5675 I2C write failed.");
+      return;
+    }
+
+    sendAck('c');
+    Serial.print("Dark current DAC set: ch");
+    Serial.print((int)ch);
+    Serial.print(" = ");
+    Serial.println((int)code);
     return;
   }
 

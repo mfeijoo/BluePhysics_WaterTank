@@ -47,6 +47,12 @@ All firmware commands are received over serial and must be terminated with a sem
 | `rs;` | Starts continuous binary detector stream. |
 | `re;` | Stops continuous binary detector stream. |
 
+## Dark Current DAC (AD5675)
+
+| Command | What it does |
+|---|---|
+| `dc<0|1>,<0-65535>;` | Sets AD5675 dark-current compensation DAC code for channel 0 or 1. Examples: `dc0,3000;`, `dc1,65535;`. |
+
 ## Power Supply / Potentiometer
 
 | Command | What it does |

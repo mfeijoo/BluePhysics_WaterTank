@@ -74,6 +74,17 @@ The system supports the following operations (firmware + app):
 - This command intentionally bypasses configured axis limits
 - Error frame `AA 55 11 75 01` indicates malformed command or unsupported axis
 
+## 14. Dark-Current DAC Set Command
+- Send `dc<channel>,<code>;` over serial
+- Channel must be `0` or `1`
+- Code must be in range `0..65535`
+- Examples: `dc0,3000;`, `dc1,65535;`
+- Firmware writes AD5675 over I2C and updates the requested channel output immediately
+- ACK frame: `AA 55 10 63`
+- Error frame `AA 55 11 63 01`: malformed command
+- Error frame `AA 55 11 63 02`: channel/code out of range
+- Error frame `AA 55 11 63 03`: I2C write failure
+
 ---
 
 # Measurement Timing
