@@ -25,6 +25,9 @@ of_table_folder = os.path.join("Measurements", "OF_tables")
 if 'measuring_OF' not in st.session_state:
     st.session_state['measuring_OF'] = False
 
+if 'is_started' not in st.session_state:
+    st.session_state['is_started'] = False
+
 st.header("OF Measurement")
 
 filename_prefix = st.text_input("Filename prefix:", value="Output_Factor_")
@@ -72,7 +75,7 @@ with cols[2]:
         ]
         if rows:
             df_rawdata = pd.DataFrame(rows)
-            df_rawdata["dt_s"] = df_rawdata.df_us / 1000000
+            df_rawdata["dt_s"] = df_rawdata.dt_us / 1000000
             df = df_rawdata.loc[:, ['idx', 'dt_s', 'ch0_V', 'ch1_V']]
             df.columns = ['Number', 'Time', 'ch0', 'ch1']
             current_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
