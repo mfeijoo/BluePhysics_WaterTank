@@ -80,7 +80,7 @@ def read_dataframes(files):
                 integration_time = line[18:-3]
                 integration_times.append(int(integration_time))
         for n, line in enumerate(firstlines):
-            if line.startswith('idx,dt_us'):
+            if line.startswith('Number,Time'):
                 lines_to_skip = n
                 break
         df = pd.read_csv(file, skiprows=lines_to_skip)
@@ -96,12 +96,9 @@ OF = st.number_input('Known OF (1 means it will be used the gantry rotation meth
 
 dfis = []
 for i in range(len(dfs)):
-    df_orig = dfs[i]
+    df = dfs[i]
     capacitor = capacitors[i]
     integration_time = integration_times[i]
-    df_orig["dt_s"] = df_orig.df_us / 1000000
-    df = df_orig.loc[:, ['idx', 'dt_s', 'ch0_V', 'ch1_V']]
-    df.columns = ['Number', 'Time', 'ch0', 'ch1']
     last_time = df.iloc[-1, 1]
     zeros = df.loc[(df.Time < 1) | (df.Time > last_time - 1), 'ch0':].mean()
     dfchz = df.loc[:, 'ch0':] - zeros

@@ -59,18 +59,14 @@ def read_dataframe(file):
         if line.startswith("Integration time:"):
             integration_time = line[18:-3]
     for n, line in enumerate(firstlines):
-        if line.startswith('idx,dt_us'):
+        if line.startswith('Number,Time'):
             lines_to_skip = n
             break
     #then read the data frame
     df = pd.read_csv(file, skiprows = lines_to_skip)
     return df, capacitor, int(integration_time)
 
-dforig, capacitor, inegration_time_us = read_dataframe(os.path.join("Measurements", "Shots", filename))
-dforig["dt_s"] = dforig.df_us / 1000000
-df = dforig.loc[:, ['idx', 'dt_s', 'ch0_V', 'ch1_V']]
-df.columns = ['Number', 'Time', 'ch0', 'ch1']
-
+df, capacitor, inegration_time_us = read_dataframe(os.path.join("Measurements", "Shots", filename))
 
 cutoff = st.selectbox('cut off', [0.5, 8, 10, 20, 40, 100, 150], index = 4)
 

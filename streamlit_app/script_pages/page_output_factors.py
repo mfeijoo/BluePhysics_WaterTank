@@ -167,7 +167,7 @@ def read_dataframe(file):
         if line.startswith("Integration time:"):
             integration_time = line[18:-3]
     for n, line in enumerate(firstlines):
-        if line.startswith('idx,dt_us'):
+        if line.startswith('Number,Time'):
             lines_to_skip = n
             break
     #then read the data frame
@@ -189,6 +189,7 @@ if file_now_name != 'select a file...':
     dforig, capacitator, integration_time_us, acr_used = read_dataframe(file_now)
 else:
     file_now = 'select a file...'
+    acr_used = st.session_state.get("acr_value", 1.0)
 
 if 'file_to_analyze' in st.session_state:
 

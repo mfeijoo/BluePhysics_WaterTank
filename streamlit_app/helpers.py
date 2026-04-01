@@ -43,8 +43,7 @@ def calc_shots_integrals(filename, ACR=1, cutoff=40):
             break
     # now that we have the main values we can start downloading the raw dataframe
     df_orig = pd.read_csv(filename, skiprows=lines_to_skip)
-    df = df_orig.loc[:, ['idx', 'dt_s', 'ch0_V', 'ch1_V']]
-    df.columns = ['Number', 'Time', 'ch0', 'ch1']
+    df = df_orig.copy()
     # only the columns we want
     df = df.loc[:, ['Number', 'Time', 'ch0', 'ch1']]
     # find the zeros
