@@ -1,6 +1,6 @@
 import streamlit as st
 
-from streamlit_app.protocol import mcp9808_raw_to_celsius
+from protocol import mcp9808_raw_to_celsius
 
 
 mgr = st.session_state.mgr

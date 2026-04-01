@@ -8,8 +8,8 @@ import numpy as np
 from glob import glob
 import pandas as pd
 import re
-from streamlit_app.helpers import calc_shots_integrals
-from streamlit_app.protocol import counts_to_volts
+from helpers import calc_shots_integrals
+from protocol import counts_to_volts
 
 def show():
 

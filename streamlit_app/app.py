@@ -40,14 +40,19 @@ navigation = st.navigation(
             st.Page(PAGES_DIR / "9_Temperature.py", title="Temperature", icon=":material/device_thermostat:"),
             st.Page(PAGES_DIR / "10_Read_Bytes.py", title="Read Bytes", icon=":material/memory:"),
             st.Page(PAGES_DIR / "11_Stream_Session_Readout.py", title="Stream Readout", icon=":material/waves:"),
-        ],
-        "Shot Processing": [
             st.Page(PAGES_DIR / "page_analyze_shots.py", title="Analyze Shots", icon=":material/analytics:"),
             st.Page(PAGES_DIR / "page_shots_calc_integrals.py", title="Calc Integrals", icon=":material/functions:"),
             st.Page(PAGES_DIR / "page_shots_calc_of.py", title="Calc OF", icon=":material/timeline:"),
             st.Page(PAGES_DIR / "page_shots_calc_acr.py", title="Calc ACR", icon=":material/monitoring:"),
             st.Page(PAGES_DIR / "page_output_factors.py", title="Output Factors", icon=":material/table_chart:"),
         ],
+        #"Shot Processing": [
+         #   st.Page(PAGES_DIR / "page_analyze_shots.py", title="Analyze Shots", icon=":material/analytics:"),
+          #  st.Page(PAGES_DIR / "page_shots_calc_integrals.py", title="Calc Integrals", icon=":material/functions:"),
+           # st.Page(PAGES_DIR / "page_shots_calc_of.py", title="Calc OF", icon=":material/timeline:"),
+            #st.Page(PAGES_DIR / "page_shots_calc_acr.py", title="Calc ACR", icon=":material/monitoring:"),
+            #st.Page(PAGES_DIR / "page_output_factors.py", title="Output Factors", icon=":material/table_chart:"),
+        #],
     }
 )
 

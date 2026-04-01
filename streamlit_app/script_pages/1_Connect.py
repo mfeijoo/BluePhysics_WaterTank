@@ -1,6 +1,6 @@
 import streamlit as st
 
-from streamlit_app.serial_manager import list_ports, auto_detect_port
+from serial_manager import list_ports, auto_detect_port
 
 mgr = st.session_state.mgr
 

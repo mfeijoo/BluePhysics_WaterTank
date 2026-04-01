@@ -2,7 +2,7 @@ import pandas as pd
 import streamlit as st
 import plotly.express as px
 
-from streamlit_app.protocol import counts_to_volts
+from protocol import counts_to_volts
 
 mgr = st.session_state.mgr
 st.title("10) Read Bytes (readbytesN) - Binary Only")

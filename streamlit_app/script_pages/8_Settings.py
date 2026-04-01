@@ -2,8 +2,8 @@ import time
 
 import streamlit as st
 
-from streamlit_app.config_store import load_config, save_config
-from streamlit_app.serial_manager import auto_detect_port, list_ports
+from config_store import load_config, save_config
+from serial_manager import auto_detect_port, list_ports
 
 st.title("8) Settings")
 mgr = st.session_state.mgr
