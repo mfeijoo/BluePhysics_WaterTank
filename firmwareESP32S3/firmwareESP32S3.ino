@@ -780,12 +780,16 @@ static void detReadAndPrintHuman(uint32_t N) {
 
   Serial.println("Detector read results:");
   for (uint32_t j = 0; j < N; j++) {
+    float det_ch0_volts = -((float)measBuf[j].ch0 * 24.0f / 65535.0f) + 12.0f;
+    float det_ch1_volts = -((float)measBuf[j].ch1 * 24.0f / 65535.0f) + 12.0f;
     Serial.print("read ");
     Serial.print(measBuf[j].idx);
     Serial.print(": ch0=");
-    Serial.print(measBuf[j].ch0);
+    Serial.print(det_ch0_volts, 6);
+    Serial.print(" V");
     Serial.print(", ch1=");
-    Serial.println(measBuf[j].ch1);
+    Serial.print(det_ch1_volts, 6);
+    Serial.println(" V");
   }
 }
 
