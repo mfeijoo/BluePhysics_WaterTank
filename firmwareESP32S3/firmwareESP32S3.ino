@@ -130,6 +130,7 @@ static const int CS_POT = 36;
 static const int RST_PIN  = 40;
 static const int HOLD_PIN = 41;
 static const int CAP_SEL_0 = 2;
+static const int SERIAL_TIMING_PIN = 21;
 
 // Timing
 static volatile uint32_t integraltimemicros = 700; // default 700 us, can set to 200 us
@@ -991,12 +992,14 @@ static void detReadAndSendBytesService() {
   now = micros();
   det_bytes_last_us = now;
 
+  digitalWrite(SERIAL_TIMING_PIN, HIGH);
   sendPktHeader(PKT_STREAM_SAMPLE);
   Serial.write((uint8_t*)&det_bytes_idx, 4);
   uint32_t dt = (uint32_t)(now - det_bytes_t0_us);
   Serial.write((uint8_t*)&dt, 4);
   Serial.write((uint8_t*)&det_ch0, 2);
   Serial.write((uint8_t*)&det_ch1, 2);
+  digitalWrite(SERIAL_TIMING_PIN, LOW);
   det_bytes_idx++;
 }
 
@@ -1138,8 +1141,10 @@ void setup() {
   pinMode(RST_PIN, OUTPUT);
   pinMode(HOLD_PIN, OUTPUT);
   pinMode(CAP_SEL_0, OUTPUT);
+  pinMode(SERIAL_TIMING_PIN, OUTPUT);
   digitalWrite(RST_PIN, HIGH);
   digitalWrite(HOLD_PIN, LOW);
+  digitalWrite(SERIAL_TIMING_PIN, LOW);
 
   // Default capacitor selection on startup: internal capacitor.
   selectCapacitor(false);
@@ -1525,6 +1530,19 @@ void loop() {
     }
 
     detReadAndSendBytes(N);
+    return;
+  }
+
+  //-----manual control for GPIO21 timing pin: pin21H; / pin21L;
+  if (strcmp(cmd, "pin21H") == 0) {
+    digitalWrite(SERIAL_TIMING_PIN, HIGH);
+    Serial.println("GPIO21 set HIGH");
+    return;
+  }
+
+  if (strcmp(cmd, "pin21L") == 0) {
+    digitalWrite(SERIAL_TIMING_PIN, LOW);
+    Serial.println("GPIO21 set LOW");
     return;
   }
 
