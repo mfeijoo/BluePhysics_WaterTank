@@ -138,8 +138,12 @@ static void max5494_cmd(uint8_t cmd){
  * @param code Valor a escribir (16 bits)
  */
 uint8_t ad5675_write_update(uint8_t ch, uint16_t code){
+  // Hardware wiring maps logical channels swapped on AD5675 (A/B),
+  // so swap channel select bits 0 <-> 1 to keep ch0/ch1 user-facing API correct.
+  uint8_t hw_ch = (uint8_t)(ch ^ 0x01);
+
   Wire.beginTransmission(AD5675_ADDR);
-  uint8_t commandByte = (CMD_WRITE_UPDATE << 4) | (ch & 0x0F);
+  uint8_t commandByte = (CMD_WRITE_UPDATE << 4) | (hw_ch & 0x0F);
   Wire.write(commandByte);
   Wire.write((uint8_t)(code >> 8));
   Wire.write((uint8_t)(code & 0xFF));
