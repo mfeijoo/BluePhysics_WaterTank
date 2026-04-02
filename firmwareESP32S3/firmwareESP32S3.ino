@@ -806,9 +806,10 @@ static float detReadAverageAndPrintHuman(uint8_t channel, uint32_t sampleCount, 
   return averageVolts;
 }
 
-static bool setDarkCurrentChannelToTarget(uint8_t ch, float targetVolts, uint32_t sampleCount) {
+static bool setDarkCurrentChannelToTarget(uint8_t ch, float targetVolts, uint32_t sampleCount, uint16_t codeStep) {
   if (ch > 1) return false;
   if (sampleCount == 0) sampleCount = 100;
+  if (codeStep == 0) codeStep = 1;
 
   uint16_t code = 0;
   if (!ad5675_write_update(ch, code)) {
@@ -849,7 +850,7 @@ static bool setDarkCurrentChannelToTarget(uint8_t ch, float targetVolts, uint32_
       return false;
     }
 
-    uint32_t nextCode = (uint32_t)code + 10U;
+    uint32_t nextCode = (uint32_t)code + (uint32_t)codeStep;
     if (nextCode > 65535U) nextCode = 65535U;
     code = (uint16_t)nextCode;
     if (!ad5675_write_update(ch, code)) {
@@ -859,11 +860,12 @@ static bool setDarkCurrentChannelToTarget(uint8_t ch, float targetVolts, uint32_
   }
 }
 
-static bool setDarkCurrentToMinusTenVolts() {
-  Serial.println("Set dark current routine: target <= -10.0 V, samples=100.");
+static bool setDarkCurrentToMinusTenVolts(uint16_t codeStep) {
+  Serial.print("Set dark current routine: target <= -10.0 V, samples=100, codeStep=");
+  Serial.println((int)codeStep);
 
-  if (!setDarkCurrentChannelToTarget(0, -10.0f, 100)) return false;
-  if (!setDarkCurrentChannelToTarget(1, -10.0f, 100)) return false;
+  if (!setDarkCurrentChannelToTarget(0, -10.0f, 100, codeStep)) return false;
+  if (!setDarkCurrentChannelToTarget(1, -10.0f, 100, codeStep)) return false;
 
   Serial.println("Set dark current routine completed.");
   return true;
@@ -1371,9 +1373,29 @@ void loop() {
     return;
   }
 
-  //-----set dark current automatically to <= -10 V on ch0 and ch1: sdc;
-  if (strcmp(cmd, "sdc") == 0) {
-    if (!setDarkCurrentToMinusTenVolts()) {
+  //-----set dark current automatically to <= -10 V on ch0 and ch1: sdc[step];
+  // examples: sdc; (default step 10), sdc10;, sdc20; ... sdc100;
+  if (strncmp(cmd, "sdc", 3) == 0) {
+    uint16_t codeStep = 10;
+    if (cmd[3] != 0) {
+      char *end = nullptr;
+      long stepLong = strtol(cmd + 3, &end, 10);
+      if (end == cmd + 3 || *end != 0) {
+        sendErr('s', 0x01);
+        Serial.println("Error: malformed sdc command. Use sdc; or sdc<1-100>;");
+        return;
+      }
+
+      if (stepLong < 1 || stepLong > 100) {
+        sendErr('s', 0x02);
+        Serial.println("Error: sdc step out of range. Use integer step 1..100.");
+        return;
+      }
+
+      codeStep = (uint16_t)stepLong;
+    }
+
+    if (!setDarkCurrentToMinusTenVolts(codeStep)) {
       sendErr('s', 0x03);
       return;
     }

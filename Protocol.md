@@ -28,6 +28,8 @@ ASCII command string terminated by semicolon:
 - `avgdet0;`
 - `avgdet1,250;`
 - `sdc;`
+- `sdc10;`
+- `sdc20;`
 - `M10,25.5,-3;`
 - `S10,25.5,-3;`
 - `Q10,25.5,-3,2000;`
@@ -259,16 +261,20 @@ Detector average ch<channel> from <samples> samples: <average_volts> V (<average
 - Voltage conversion uses the project detector formula: `V = -((counts * 24) / 65535) + 12`.
 - This is a debug/human-readable command and does **not** emit binary ACK/ERR framing.
 
-## 7.3) Set dark current command (`sdc;`)
+## 7.3) Set dark current command (`sdc[step];`)
 
 This command runs an automatic dark-current routine targeting detector average voltage `<= -10 V` on both detector channels using AD5675 DAC steps.
+
+- `step` is optional and must be an integer `1..100`.
+- `sdc;` uses default `step=10`.
+- Example: `sdc20;` uses DAC increments of `20`.
 
 Sequence:
 
 1. **Channel 0**
    - Set DAC code to `0` using `ad5675_write_update(0, 0)`.
    - Measure `detReadAverageAndPrintHuman(0, 100)`.
-   - If average voltage is greater than `-10 V` (for example `-9 V`), increment DAC code by `+10` and measure again.
+   - If average voltage is greater than `-10 V` (for example `-9 V`), increment DAC code by `+step` and measure again.
    - Stop when average is `<= -10 V`.
    - Abort if DAC code reaches `65535`.
 2. **Channel 1**
@@ -276,7 +282,9 @@ Sequence:
 
 Behavior:
 - On success, firmware sends ACK `AA 55 10 73` (`'s'`).
-- On failure (I2C error, invalid measurement, or max code reached before target), firmware sends ERR with `cmd_id='s'`, `err_code=0x03`.
+- On malformed `sdc` payload, firmware sends ERR with `cmd_id='s'`, `err_code=0x01`.
+- On out-of-range `step` (`<1` or `>100`), firmware sends ERR with `cmd_id='s'`, `err_code=0x02`.
+- On runtime failure (I2C error, invalid measurement, or max code reached before target), firmware sends ERR with `cmd_id='s'`, `err_code=0x03`.
 - During the loop firmware prints human-readable status lines with: current DAC `code`, active-channel voltage, and both channel voltage/count averages.
 
 ## 7.1) Binary pcnt32 limits packet (`l;`)

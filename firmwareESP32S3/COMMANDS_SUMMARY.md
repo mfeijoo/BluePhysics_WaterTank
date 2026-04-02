@@ -53,7 +53,7 @@ All firmware commands are received over serial and must be terminated with a sem
 | Command | What it does |
 |---|---|
 | `dc<0|1>,<0-65535>;` | Sets AD5675 dark-current compensation DAC code for channel 0 or 1. Examples: `dc0,3000;`, `dc1,65535;`. |
-| `sdc;` | Runs automatic dark-current setup for both channels: starts each channel at DAC code `0`, measures with 100 samples, increments DAC code by `+10` while average voltage is above `-10 V`, and stops when average is `<= -10 V` (or max DAC code is reached). During the loop, firmware prints status lines with current code, active channel voltage, and both channel volt/count averages. Sequence runs for ch0 first, then ch1. |
+| `sdc[1-100];` | Runs automatic dark-current setup for both channels: starts each channel at DAC code `0`, measures with 100 samples, increments DAC code by the selected step (`1..100`) while average voltage is above `-10 V`, and stops when average is `<= -10 V` (or max DAC code is reached). `sdc;` defaults to step `10`, while `sdc20;` uses step `20`. During the loop, firmware prints status lines with current code, active channel voltage, and both channel volt/count averages. Sequence runs for ch0 first, then ch1. |
 
 ## Power Supply / Potentiometer
 
