@@ -306,8 +306,13 @@ static void sendStepDelaysPacket();
 static uint8_t ad5675_write_update(uint8_t ch, uint16_t code) {
   if (ch > 1) return 0;
 
+  // AD5675 channel mapping in this hardware is inverted:
+  // logical ch0 -> DAC channel B, logical ch1 -> DAC channel A.
+  // Swap 0/1 here so user-facing commands dc0/dc1 control expected outputs.
+  uint8_t hw_ch = (uint8_t)(ch ^ 0x01);
+
   Wire.beginTransmission(AD5675_ADDR);
-  Wire.write((uint8_t)((AD5675_CMD_WRITE_UPDATE << 4) | ch));
+  Wire.write((uint8_t)((AD5675_CMD_WRITE_UPDATE << 4) | hw_ch));
   Wire.write((uint8_t)(code >> 8));
   Wire.write((uint8_t)(code & 0xFF));
 
