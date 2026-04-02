@@ -1533,6 +1533,19 @@ void loop() {
     return;
   }
 
+  //-----manual control for GPIO21 timing pin: pin21H; / pin21L;
+  if (strcmp(cmd, "pin21H") == 0) {
+    digitalWrite(SERIAL_TIMING_PIN, HIGH);
+    Serial.println("GPIO21 set HIGH");
+    return;
+  }
+
+  if (strcmp(cmd, "pin21L") == 0) {
+    digitalWrite(SERIAL_TIMING_PIN, LOW);
+    Serial.println("GPIO21 set LOW");
+    return;
+  }
+
     //-----continuous human detector stream: start; ... stop;
   if (strcmp(cmd, "start") == 0) {
     detReadAndPrintHumanStart();
