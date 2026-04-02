@@ -748,6 +748,53 @@ static void detReadOnce() {
   digitalWrite(HOLD_PIN, LOW);
 }
 
+static void detReadAverageAndPrintHuman(uint8_t channel, uint32_t sampleCount) {
+  if (channel > 1) {
+    Serial.println("Error: channel must be 0 or 1.");
+    return;
+  }
+
+  if (sampleCount == 0) {
+    Serial.println("Error: sample count must be > 0.");
+    return;
+  }
+
+  if (sampleCount > MEAS_MAX_SAMPLES) {
+    Serial.print("Warning: sample count limited to ");
+    Serial.println(MEAS_MAX_SAMPLES);
+    sampleCount = MEAS_MAX_SAMPLES;
+  }
+
+  digitalWrite(RST_PIN, HIGH);
+  digitalWrite(HOLD_PIN, LOW);
+
+  uint64_t sum = 0;
+  uint32_t starttime = micros();
+  uint32_t i = 0;
+  while (i < sampleCount) {
+    if ((uint32_t)(micros() - starttime) >= (uint32_t)integraltimemicros) {
+      detReadOnce();
+      starttime = micros();
+
+      sum += (channel == 0) ? det_ch0 : det_ch1;
+      i++;
+    }
+  }
+
+  float averageCounts = (float)sum / (float)sampleCount;
+  float averageVolts = -((averageCounts * 24.0f) / 65535.0f) + 12.0f;
+
+  Serial.print("Detector average ch");
+  Serial.print((int)channel);
+  Serial.print(" from ");
+  Serial.print(sampleCount);
+  Serial.print(" samples: ");
+  Serial.print(averageVolts, 6);
+  Serial.print(" V (");
+  Serial.print(averageCounts, 3);
+  Serial.println(" counts)");
+}
+
 
 static void detReadAndPrintHuman(uint32_t N) {
   if (N == 0) {
@@ -1329,6 +1376,35 @@ void loop() {
     }
 
     regulatePS(targetV);
+    return;
+  }
+
+  //-----average detector channel and print human-readable result:
+  // avgdet<channel>[,<samples>]; examples: avgdet0; avgdet1,250;
+  if (strncmp(cmd, "avgdet", 6) == 0) {
+    char *p = cmd + 6;
+    char *end = nullptr;
+
+    long ch = strtol(p, &end, 10);
+    if (end == p) {
+      Serial.println("Error: malformed avgdet command. Use avgdet<0|1>[,<samples>];");
+      return;
+    }
+
+    uint32_t samples = 100;
+    if (*end == ',') {
+      p = end + 1;
+      samples = (uint32_t)strtoul(p, &end, 10);
+      if (end == p || *end != 0) {
+        Serial.println("Error: malformed avgdet command. Use avgdet<0|1>[,<samples>];");
+        return;
+      }
+    } else if (*end != 0) {
+      Serial.println("Error: malformed avgdet command. Use avgdet<0|1>[,<samples>];");
+      return;
+    }
+
+    detReadAverageAndPrintHuman((uint8_t)ch, samples);
     return;
   }
 
