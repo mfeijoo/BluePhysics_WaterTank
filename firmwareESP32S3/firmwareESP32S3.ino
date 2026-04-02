@@ -1375,16 +1375,12 @@ void loop() {
 
   //-----set dark current automatically to <= -10 V on ch0 and ch1: sdc[step];
   // examples: sdc; (default step 10), sdc10;, sdc20; ... sdc100;
-  if (cmd[0] == 's' && cmd[1] == 'd' && cmd[2] == 'c') {
+  if (strncmp(cmd, "sdc", 3) == 0) {
     uint16_t codeStep = 10;
-    char *p = cmd + 3;
-    while (*p == ' ' || *p == '\t') p++;
-
-    if (*p != 0) {
+    if (cmd[3] != 0) {
       char *end = nullptr;
-      long stepLong = strtol(p, &end, 10);
-      while (*end == ' ' || *end == '\t') end++;
-      if (end == p || *end != 0) {
+      long stepLong = strtol(cmd + 3, &end, 10);
+      if (end == cmd + 3 || *end != 0) {
         sendErr('s', 0x01);
         Serial.println("Error: malformed sdc command. Use sdc; or sdc<1-100>;");
         return;
