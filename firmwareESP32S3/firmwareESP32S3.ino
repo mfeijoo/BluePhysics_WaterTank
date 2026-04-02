@@ -1489,7 +1489,7 @@ void loop() {
       return;
     }
 
-    detReadAverageAndPrintHuman((uint8_t)ch, samples);
+    detReadAverageAndPrintHuman((uint8_t)ch, samples, nullptr, true);
     return;
   }
 
