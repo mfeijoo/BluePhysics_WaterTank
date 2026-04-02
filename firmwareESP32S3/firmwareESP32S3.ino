@@ -807,7 +807,6 @@ static float detReadAverageAndPrintHuman(uint8_t channel, uint32_t sampleCount, 
 static bool setDarkCurrentChannelToTarget(uint8_t ch, float targetVolts, uint32_t sampleCount) {
   if (ch > 1) return false;
   if (sampleCount == 0) sampleCount = 100;
-  static const float MAX_DARK_CURRENT_AVG_COUNTS = 60000.0f;
 
   uint16_t code = 0;
   if (!ad5675_write_update(ch, code)) {
@@ -816,17 +815,30 @@ static bool setDarkCurrentChannelToTarget(uint8_t ch, float targetVolts, uint32_
   }
 
   while (true) {
-    float averageCounts = 0.0f;
-    float averageVolts = detReadAverageAndPrintHuman(ch, sampleCount, &averageCounts);
-    if (isnan(averageVolts)) return false;
-    if (averageVolts <= targetVolts) return true;
-    if (averageCounts > MAX_DARK_CURRENT_AVG_COUNTS) {
-      Serial.print("Warning: dark current ch");
-      Serial.print((int)ch);
-      Serial.print(" stopped because average counts exceeded ");
-      Serial.println((int)MAX_DARK_CURRENT_AVG_COUNTS);
-      return false;
-    }
+    float ch0Counts = 0.0f;
+    float ch1Counts = 0.0f;
+    float ch0Volts = detReadAverageAndPrintHuman(0, sampleCount, &ch0Counts);
+    float ch1Volts = detReadAverageAndPrintHuman(1, sampleCount, &ch1Counts);
+    if (isnan(ch0Volts) || isnan(ch1Volts)) return false;
+
+    float activeVolts = (ch == 0) ? ch0Volts : ch1Volts;
+    Serial.print("sdc status: tuning ch");
+    Serial.print((int)ch);
+    Serial.print(", code=");
+    Serial.print((int)code);
+    Serial.print(", activeV=");
+    Serial.print(activeVolts, 6);
+    Serial.print(" V, ch0=");
+    Serial.print(ch0Volts, 6);
+    Serial.print(" V (");
+    Serial.print(ch0Counts, 3);
+    Serial.print(" counts), ch1=");
+    Serial.print(ch1Volts, 6);
+    Serial.print(" V (");
+    Serial.print(ch1Counts, 3);
+    Serial.println(" counts)");
+
+    if (activeVolts <= targetVolts) return true;
 
     if (code == 65535) {
       Serial.print("Warning: dark current ch");
@@ -835,7 +847,9 @@ static bool setDarkCurrentChannelToTarget(uint8_t ch, float targetVolts, uint32_
       return false;
     }
 
-    code++;
+    uint32_t nextCode = (uint32_t)code + 10U;
+    if (nextCode > 65535U) nextCode = 65535U;
+    code = (uint16_t)nextCode;
     if (!ad5675_write_update(ch, code)) {
       Serial.println("Error: AD5675 I2C write failed during dark current regulation.");
       return false;

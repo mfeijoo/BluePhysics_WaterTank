@@ -268,17 +268,16 @@ Sequence:
 1. **Channel 0**
    - Set DAC code to `0` using `ad5675_write_update(0, 0)`.
    - Measure `detReadAverageAndPrintHuman(0, 100)`.
-   - If average voltage is greater than `-10 V` (for example `-9 V`), increment DAC code by `+1` and measure again.
+   - If average voltage is greater than `-10 V` (for example `-9 V`), increment DAC code by `+10` and measure again.
    - Stop when average is `<= -10 V`.
-   - Safety stop: abort if average detector counts for the tuned channel exceeds `60000`.
    - Abort if DAC code reaches `65535`.
 2. **Channel 1**
    - Repeat the same process, always starting again from DAC code `0`.
 
 Behavior:
 - On success, firmware sends ACK `AA 55 10 73` (`'s'`).
-- On failure (I2C error, invalid measurement, average counts `> 60000`, or max code reached before target), firmware sends ERR with `cmd_id='s'`, `err_code=0x03`.
-- The routine also prints human-readable progress lines from `detReadAverageAndPrintHuman(...)`.
+- On failure (I2C error, invalid measurement, or max code reached before target), firmware sends ERR with `cmd_id='s'`, `err_code=0x03`.
+- During the loop firmware prints human-readable status lines with: current DAC `code`, active-channel voltage, and both channel voltage/count averages.
 
 ## 7.1) Binary pcnt32 limits packet (`l;`)
 
