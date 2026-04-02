@@ -302,6 +302,7 @@ static double stepsToPcnt32Delta(int32_t steps) {
 static void sendErr(uint8_t cmd_id, uint8_t err_code);
 static void sendPcnt32LimitsPacket();
 static void sendStepDelaysPacket();
+static float detReadAverageAndPrintHuman(uint8_t channel, uint32_t sampleCount, float *averageCountsOut = nullptr);
 
 static uint8_t ad5675_write_update(uint8_t ch, uint16_t code) {
   if (ch > 1) return 0;
@@ -753,15 +754,15 @@ static void detReadOnce() {
   digitalWrite(HOLD_PIN, LOW);
 }
 
-static void detReadAverageAndPrintHuman(uint8_t channel, uint32_t sampleCount) {
+static float detReadAverageAndPrintHuman(uint8_t channel, uint32_t sampleCount, float *averageCountsOut) {
   if (channel > 1) {
     Serial.println("Error: channel must be 0 or 1.");
-    return;
+    return NAN;
   }
 
   if (sampleCount == 0) {
     Serial.println("Error: sample count must be > 0.");
-    return;
+    return NAN;
   }
 
   if (sampleCount > MEAS_MAX_SAMPLES) {
@@ -788,6 +789,7 @@ static void detReadAverageAndPrintHuman(uint8_t channel, uint32_t sampleCount) {
 
   float averageCounts = (float)sum / (float)sampleCount;
   float averageVolts = -((averageCounts * 24.0f) / 65535.0f) + 12.0f;
+  if (averageCountsOut != nullptr) *averageCountsOut = averageCounts;
 
   Serial.print("Detector average ch");
   Serial.print((int)channel);
@@ -798,6 +800,57 @@ static void detReadAverageAndPrintHuman(uint8_t channel, uint32_t sampleCount) {
   Serial.print(" V (");
   Serial.print(averageCounts, 3);
   Serial.println(" counts)");
+
+  return averageVolts;
+}
+
+static bool setDarkCurrentChannelToTarget(uint8_t ch, float targetVolts, uint32_t sampleCount) {
+  if (ch > 1) return false;
+  if (sampleCount == 0) sampleCount = 100;
+  static const float MAX_DARK_CURRENT_AVG_COUNTS = 60000.0f;
+
+  uint16_t code = 0;
+  if (!ad5675_write_update(ch, code)) {
+    Serial.println("Error: AD5675 I2C write failed while setting initial code.");
+    return false;
+  }
+
+  while (true) {
+    float averageCounts = 0.0f;
+    float averageVolts = detReadAverageAndPrintHuman(ch, sampleCount, &averageCounts);
+    if (isnan(averageVolts)) return false;
+    if (averageVolts <= targetVolts) return true;
+    if (averageCounts > MAX_DARK_CURRENT_AVG_COUNTS) {
+      Serial.print("Warning: dark current ch");
+      Serial.print((int)ch);
+      Serial.print(" stopped because average counts exceeded ");
+      Serial.println((int)MAX_DARK_CURRENT_AVG_COUNTS);
+      return false;
+    }
+
+    if (code == 65535) {
+      Serial.print("Warning: dark current ch");
+      Serial.print((int)ch);
+      Serial.println(" reached max DAC code before target voltage.");
+      return false;
+    }
+
+    code++;
+    if (!ad5675_write_update(ch, code)) {
+      Serial.println("Error: AD5675 I2C write failed during dark current regulation.");
+      return false;
+    }
+  }
+}
+
+static bool setDarkCurrentToMinusTenVolts() {
+  Serial.println("Set dark current routine: target <= -10.0 V, samples=100.");
+
+  if (!setDarkCurrentChannelToTarget(0, -10.0f, 100)) return false;
+  if (!setDarkCurrentChannelToTarget(1, -10.0f, 100)) return false;
+
+  Serial.println("Set dark current routine completed.");
+  return true;
 }
 
 
@@ -1299,6 +1352,17 @@ void loop() {
     } else {
       sendAck('h');
     }
+    return;
+  }
+
+  //-----set dark current automatically to <= -10 V on ch0 and ch1: sdc;
+  if (strcmp(cmd, "sdc") == 0) {
+    if (!setDarkCurrentToMinusTenVolts()) {
+      sendErr('s', 0x03);
+      return;
+    }
+
+    sendAck('s');
     return;
   }
 
