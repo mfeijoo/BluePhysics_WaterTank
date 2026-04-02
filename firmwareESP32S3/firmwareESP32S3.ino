@@ -302,7 +302,7 @@ static double stepsToPcnt32Delta(int32_t steps) {
 static void sendErr(uint8_t cmd_id, uint8_t err_code);
 static void sendPcnt32LimitsPacket();
 static void sendStepDelaysPacket();
-static float detReadAverageAndPrintHuman(uint8_t channel, uint32_t sampleCount, float *averageCountsOut = nullptr);
+static float detReadAverageAndPrintHuman(uint8_t channel, uint32_t sampleCount, float *averageCountsOut = nullptr, bool printHuman = true);
 
 static uint8_t ad5675_write_update(uint8_t ch, uint16_t code) {
   if (ch > 1) return 0;
@@ -754,7 +754,7 @@ static void detReadOnce() {
   digitalWrite(HOLD_PIN, LOW);
 }
 
-static float detReadAverageAndPrintHuman(uint8_t channel, uint32_t sampleCount, float *averageCountsOut) {
+static float detReadAverageAndPrintHuman(uint8_t channel, uint32_t sampleCount, float *averageCountsOut, bool printHuman) {
   if (channel > 1) {
     Serial.println("Error: channel must be 0 or 1.");
     return NAN;
@@ -791,15 +791,17 @@ static float detReadAverageAndPrintHuman(uint8_t channel, uint32_t sampleCount, 
   float averageVolts = -((averageCounts * 24.0f) / 65535.0f) + 12.0f;
   if (averageCountsOut != nullptr) *averageCountsOut = averageCounts;
 
-  Serial.print("Detector average ch");
-  Serial.print((int)channel);
-  Serial.print(" from ");
-  Serial.print(sampleCount);
-  Serial.print(" samples: ");
-  Serial.print(averageVolts, 6);
-  Serial.print(" V (");
-  Serial.print(averageCounts, 3);
-  Serial.println(" counts)");
+  if (printHuman) {
+    Serial.print("Detector average ch");
+    Serial.print((int)channel);
+    Serial.print(" from ");
+    Serial.print(sampleCount);
+    Serial.print(" samples: ");
+    Serial.print(averageVolts, 6);
+    Serial.print(" V (");
+    Serial.print(averageCounts, 3);
+    Serial.println(" counts)");
+  }
 
   return averageVolts;
 }
@@ -817,8 +819,8 @@ static bool setDarkCurrentChannelToTarget(uint8_t ch, float targetVolts, uint32_
   while (true) {
     float ch0Counts = 0.0f;
     float ch1Counts = 0.0f;
-    float ch0Volts = detReadAverageAndPrintHuman(0, sampleCount, &ch0Counts);
-    float ch1Volts = detReadAverageAndPrintHuman(1, sampleCount, &ch1Counts);
+    float ch0Volts = detReadAverageAndPrintHuman(0, sampleCount, &ch0Counts, false);
+    float ch1Volts = detReadAverageAndPrintHuman(1, sampleCount, &ch1Counts, false);
     if (isnan(ch0Volts) || isnan(ch1Volts)) return false;
 
     float activeVolts = (ch == 0) ? ch0Volts : ch1Volts;
