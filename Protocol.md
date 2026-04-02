@@ -25,6 +25,8 @@ ASCII command string terminated by semicolon:
 - `i700;`
 - `m2000;`
 - `readbytes100;`
+- `avgdet0;`
+- `avgdet1,250;`
 - `M10,25.5,-3;`
 - `S10,25.5,-3;`
 - `Q10,25.5,-3,2000;`
@@ -205,7 +207,7 @@ AA 55 <int32 x><int32 y><int32 z>
 
 ---
 
-## 7) Human-readable debug commands (`P;`, `L;`, `D;`, `info;`)
+## 7) Human-readable debug commands (`P;`, `L;`, `D;`, `info;`, `avgdet...;`)
 
 `P;` prints raw 32-bit pulse counter values for all axes using `Serial.print(...)`:
 
@@ -238,6 +240,23 @@ Z min: <int32>, Z max: <int32>
 
 - `L;` is intended for manual debugging in a serial monitor.
 - It does **not** send a binary packet and does **not** emit ACK/ERR framing.
+
+## 7.2) Detector average debug command (`avgdet<channel>[,<samples>];`)
+
+This command performs repeated detector reads and prints one human-readable average:
+
+```text
+Detector average ch<channel> from <samples> samples: <average_volts> V (<average_counts> counts)
+```
+
+- Examples:
+  - `avgdet0;` (defaults to 100 samples)
+  - `avgdet1,250;`
+- `channel` must be `0` or `1`.
+- `<samples>` must be `> 0`; if omitted firmware uses `100`.
+- If `<samples>` exceeds firmware buffer limit, it is clamped to `MEAS_MAX_SAMPLES` with a warning print.
+- Voltage conversion uses the project detector formula: `V = -((counts * 24) / 65535) + 12`.
+- This is a debug/human-readable command and does **not** emit binary ACK/ERR framing.
 
 ## 7.1) Binary pcnt32 limits packet (`l;`)
 

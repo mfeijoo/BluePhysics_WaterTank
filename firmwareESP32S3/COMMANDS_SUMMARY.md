@@ -40,6 +40,7 @@ All firmware commands are received over serial and must be terminated with a sem
 | `cint;` | Selects internal capacitor (`CAP_SEL_0` LOW) and prints capacitor state. |
 | `cext;` | Selects external capacitor (`CAP_SEL_0` HIGH) and prints capacitor state. |
 | `cstate;` | Prints current capacitor selection state. |
+| `avgdet<0|1>[,<N>];` | Measures detector channel `0` or `1` repeatedly and prints the average in **volts** (and counts). Defaults to `N=100` when omitted. Example: `avgdet1,250;`. |
 | `read<N>;` | Performs `N` detector reads and prints human-readable results. |
 | `readbytes<N>;` | Performs `N` detector reads and sends them in binary format. |
 | `start;` | Starts continuous human-readable detector stream (`idx, dt_us, ch0, ch1`). |
