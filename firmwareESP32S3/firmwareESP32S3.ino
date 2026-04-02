@@ -130,6 +130,7 @@ static const int CS_POT = 36;
 static const int RST_PIN  = 40;
 static const int HOLD_PIN = 41;
 static const int CAP_SEL_0 = 2;
+static const int SERIAL_TIMING_PIN = 21;
 
 // Timing
 static volatile uint32_t integraltimemicros = 700; // default 700 us, can set to 200 us
@@ -1030,6 +1031,7 @@ static void detReadAndSendBytes(uint32_t N) {
     }
   }
 
+  digitalWrite(SERIAL_TIMING_PIN, HIGH);
   sendAck('r');
   sendPktHeader(0x31);
   Serial.write((uint8_t*)&N, 4);
@@ -1038,6 +1040,7 @@ static void detReadAndSendBytes(uint32_t N) {
   Serial.write((uint8_t*)&integ, 4);
 
   Serial.write((uint8_t*)measBuf, N * sizeof(Sample));
+  digitalWrite(SERIAL_TIMING_PIN, LOW);
 }
 
 static void readPS() {
@@ -1138,8 +1141,10 @@ void setup() {
   pinMode(RST_PIN, OUTPUT);
   pinMode(HOLD_PIN, OUTPUT);
   pinMode(CAP_SEL_0, OUTPUT);
+  pinMode(SERIAL_TIMING_PIN, OUTPUT);
   digitalWrite(RST_PIN, HIGH);
   digitalWrite(HOLD_PIN, LOW);
+  digitalWrite(SERIAL_TIMING_PIN, LOW);
 
   // Default capacitor selection on startup: internal capacitor.
   selectCapacitor(false);
