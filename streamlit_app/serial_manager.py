@@ -461,6 +461,26 @@ class SerialManager:
 
         return self.read_capacitor_rank(timeout_s=timeout_s)
 
+    def apply_integration_time_us(self, integration_time_us: int, timeout_s: float = 2.0):
+        if not self.is_connected():
+            return {"ok": False, "error": "Not connected."}
+
+        integration_us = int(integration_time_us)
+        if integration_us < 100 or integration_us > 750:
+            return {"ok": False, "error": "Integration time must be within 100..750 us."}
+
+        with self.lock:
+            self.ser.reset_input_buffer()
+            self.ser.reset_output_buffer()
+            self.ser.write(f"i{integration_us};".encode("ascii"))
+            self.ser.flush()
+
+        ack = self._wait_for_ack_or_err(timeout_s=timeout_s)
+        if not ack.get("ok"):
+            return ack
+
+        return {"ok": True, "integration_time_us": integration_us}
+
     def _parse_regulate_status_line(self, line: str):
         rgx = re.compile(r"target:\s*([-+]?\d+(?:\.\d+)?)\s*V,\s*current:\s*([-+]?\d+(?:\.\d+)?)\s*V,\s*pot:\s*(\d+)", re.IGNORECASE)
         m = rgx.search(line)

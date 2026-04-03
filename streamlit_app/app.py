@@ -19,6 +19,8 @@ if "acr_value" not in st.session_state:
 
 if "rank_value" not in st.session_state:
     st.session_state.rank_value = int(st.session_state.app_config.get("rank_value", 1))
+if "integration_time_us" not in st.session_state:
+    st.session_state.integration_time_us = int(st.session_state.app_config.get("integration_time_us", 700))
 
 if "regulate_target_v" not in st.session_state:
     st.session_state.regulate_target_v = float(st.session_state.app_config.get("regulate_target_v", 42.32))

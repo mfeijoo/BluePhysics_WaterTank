@@ -15,6 +15,8 @@ if "acr_value" not in st.session_state:
     st.session_state.acr_value = float(st.session_state.app_config.get("acr_value", 1.0))
 if "rank_value" not in st.session_state:
     st.session_state.rank_value = int(st.session_state.app_config.get("rank_value", 1))
+if "integration_time_us" not in st.session_state:
+    st.session_state.integration_time_us = int(st.session_state.app_config.get("integration_time_us", 700))
 if "regulate_target_v" not in st.session_state:
     st.session_state.regulate_target_v = float(st.session_state.app_config.get("regulate_target_v", 42.32))
 if "dark_current_step" not in st.session_state:
@@ -23,6 +25,7 @@ if "dark_current_step" not in st.session_state:
 def persist_settings(
     acr: float | None = None,
     rank: int | None = None,
+    integration_time_us: int | None = None,
     target_v: float | None = None,
     dark_current_step: int | None = None,
 ) -> None:
@@ -30,6 +33,8 @@ def persist_settings(
         st.session_state.acr_value = float(acr)
     if rank is not None:
         st.session_state.rank_value = int(rank)
+    if integration_time_us is not None:
+        st.session_state.integration_time_us = int(integration_time_us)
     if target_v is not None:
         st.session_state.regulate_target_v = float(target_v)
     if dark_current_step is not None:
@@ -38,6 +43,7 @@ def persist_settings(
     st.session_state.app_config = {
         "acr_value": float(st.session_state.acr_value),
         "rank_value": int(st.session_state.rank_value),
+        "integration_time_us": int(st.session_state.integration_time_us),
         "regulate_target_v": float(st.session_state.regulate_target_v),
         "dark_current_step": int(st.session_state.dark_current_step),
     }
@@ -81,6 +87,14 @@ rank_value = st.selectbox(
     options=[1, 2],
     index=[1, 2].index(int(st.session_state.rank_value)) if int(st.session_state.rank_value) in [1, 2] else 0,
 )
+integration_time_us = st.number_input(
+    "Integration time (us)",
+    min_value=100,
+    max_value=750,
+    value=int(st.session_state.integration_time_us),
+    step=1,
+    format="%d",
+)
 
 regulate_target_v = st.number_input(
     "Regulate target voltage (V)",
@@ -120,6 +134,15 @@ with c4:
             st.success(f"Capacitor changed on device and verified as rank {st.session_state.rank_value}")
         else:
             st.error(res.get("error", "Failed to apply capacitor rank."))
+
+if st.button("Apply integration time to device", use_container_width=True, disabled=not mgr.is_connected()):
+    res = mgr.apply_integration_time_us(int(integration_time_us))
+    if res.get("ok"):
+        st.session_state.integration_time_us = int(res["integration_time_us"])
+        persist_settings(integration_time_us=st.session_state.integration_time_us)
+        st.success(f"Integration time changed on device to {st.session_state.integration_time_us} us.")
+    else:
+        st.error(res.get("error", "Failed to apply integration time."))
 
 if st.button("Apply regulate to device", use_container_width=True, disabled=not mgr.is_connected()):
     status = st.empty()
@@ -208,6 +231,7 @@ if st.button("Save settings", use_container_width=True):
     persist_settings(
         acr=float(acr_value),
         rank=int(rank_value),
+        integration_time_us=int(integration_time_us),
         target_v=float(regulate_target_v),
         dark_current_step=int(dark_current_step),
     )
