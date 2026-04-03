@@ -13,7 +13,7 @@ ports = list_ports()
 port_devices = [p.device for p in ports]
 port_labels  = [f"{p.device} — {p.description}" for p in ports]
 
-auto = auto_detect_port("uart")
+auto = auto_detect_port("ESP32")
 default_index = port_devices.index(auto) if (auto and auto in port_devices) else 0
 
 sel = st.selectbox("Serial Port", options=port_devices, index=default_index)

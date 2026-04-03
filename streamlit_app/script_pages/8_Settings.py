@@ -46,7 +46,7 @@ def persist_settings(
 st.header("Serial connection")
 ports = list_ports()
 port_devices = [p.device for p in ports]
-auto = auto_detect_port("uart")
+auto = auto_detect_port("ESP32")
 default_index = port_devices.index(auto) if (auto and auto in port_devices) else 0
 if port_devices:
     sel = st.selectbox("Serial Port", options=port_devices, index=default_index)

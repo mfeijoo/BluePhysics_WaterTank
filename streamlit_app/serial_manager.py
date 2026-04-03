@@ -12,7 +12,7 @@ from protocol import (
 def list_ports():
     return list(serial.tools.list_ports.comports())
 
-def auto_detect_port(keyword="uart"):
+def auto_detect_port(keyword="ESP32"):
     kw = (keyword or "").lower()
     for p in list_ports():
         desc = (p.description or "").lower()
