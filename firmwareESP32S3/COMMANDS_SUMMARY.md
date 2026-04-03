@@ -47,6 +47,8 @@ All firmware commands are received over serial and must be terminated with a sem
 | `stop;` | Stops continuous human-readable detector stream. |
 | `rs;` | Starts continuous binary detector stream. |
 | `re;` | Stops continuous binary detector stream. |
+| `rts;` | Starts continuous binary detector stream with temperature (detector + MCP9808 raw temp bytes). |
+| `rte;` | Stops continuous binary detector+temperature stream. |
 
 ## Dark Current DAC (AD5675)
 

@@ -508,9 +508,16 @@ static bool det_bytes_streaming = false;
 static uint32_t det_bytes_t0_us = 0;
 static uint32_t det_bytes_last_us = 0;
 static uint32_t det_bytes_idx = 0;
+static bool det_temp_bytes_streaming = false;
+static uint32_t det_temp_bytes_t0_us = 0;
+static uint32_t det_temp_bytes_last_us = 0;
+static uint32_t det_temp_bytes_idx = 0;
 static const uint8_t PKT_STREAM_START = 0x32;
 static const uint8_t PKT_STREAM_SAMPLE = 0x33;
 static const uint8_t PKT_STREAM_STOP = 0x34;
+static const uint8_t PKT_TEMP_STREAM_START = 0x35;
+static const uint8_t PKT_TEMP_STREAM_SAMPLE = 0x36;
+static const uint8_t PKT_TEMP_STREAM_STOP = 0x37;
 
 static bool readCmd(char *buf, size_t maxlen) {
   static size_t idx = 0;
@@ -929,6 +936,7 @@ static void detReadAndPrintHumanStart() {
   det_human_idx = 0;
   det_human_streaming = true;
   det_bytes_streaming = false;
+  det_temp_bytes_streaming = false;
 
   Serial.println("Detector streaming started (idx, dt_us, ch0, ch1)");
 }
@@ -967,6 +975,7 @@ static void detReadAndSendBytesStart() {
   det_bytes_idx = 0;
   det_bytes_streaming = true;
   det_human_streaming = false;
+  det_temp_bytes_streaming = false;
 
   sendAck('s');
   sendPktHeader(PKT_STREAM_START);
@@ -1001,6 +1010,59 @@ static void detReadAndSendBytesService() {
   Serial.write((uint8_t*)&det_ch1, 2);
   digitalWrite(SERIAL_TIMING_PIN, LOW);
   det_bytes_idx++;
+}
+
+static void detReadAndSendBytesWithTempStart() {
+  digitalWrite(RST_PIN, HIGH);
+  digitalWrite(HOLD_PIN, LOW);
+
+  det_temp_bytes_t0_us = micros();
+  det_temp_bytes_last_us = det_temp_bytes_t0_us;
+  det_temp_bytes_idx = 0;
+  det_temp_bytes_streaming = true;
+  det_bytes_streaming = false;
+  det_human_streaming = false;
+
+  sendAck('T');
+  sendPktHeader(PKT_TEMP_STREAM_START);
+  uint32_t integ = (uint32_t)integraltimemicros;
+  Serial.write((uint8_t*)&integ, 4);
+}
+
+static void detReadAndSendBytesWithTempStop() {
+  det_temp_bytes_streaming = false;
+
+  sendAck('U');
+  sendPktHeader(PKT_TEMP_STREAM_STOP);
+  Serial.write((uint8_t*)&det_temp_bytes_idx, 4);
+}
+
+static void detReadAndSendBytesWithTempService() {
+  if (!det_temp_bytes_streaming) return;
+
+  uint32_t now = micros();
+  if ((uint32_t)(now - det_temp_bytes_last_us) < (uint32_t)integraltimemicros) return;
+
+  detReadOnce();
+  now = micros();
+  det_temp_bytes_last_us = now;
+
+  digitalWrite(SERIAL_TIMING_PIN, HIGH);
+  uint32_t temp_start_us = micros();
+  uint16_t temp_raw = tempsensor.read16(0x05);
+  uint32_t temp_read_us = (uint32_t)(micros() - temp_start_us);
+
+  sendPktHeader(PKT_TEMP_STREAM_SAMPLE);
+  Serial.write((uint8_t*)&det_temp_bytes_idx, 4);
+  uint32_t dt = (uint32_t)(now - det_temp_bytes_t0_us);
+  Serial.write((uint8_t*)&dt, 4);
+  Serial.write((uint8_t*)&det_ch0, 2);
+  Serial.write((uint8_t*)&det_ch1, 2);
+  Serial.write((uint8_t*)&temp_raw, 2);
+  Serial.write((uint8_t*)&temp_read_us, 4);
+  digitalWrite(SERIAL_TIMING_PIN, LOW);
+
+  det_temp_bytes_idx++;
 }
 
 static void detReadAndSendBytes(uint32_t N) {
@@ -1227,6 +1289,7 @@ void loop() {
 
   detReadAndPrintHumanService();
   detReadAndSendBytesService();
+  detReadAndSendBytesWithTempService();
 
   if (!readCmd(cmd, sizeof(cmd))) return;
   if (cmd[0] == 0) return;
@@ -1565,6 +1628,17 @@ void loop() {
 
   if (strcmp(cmd, "re") == 0) {
     detReadAndSendBytesStop();
+    return;
+  }
+
+  //-----continuous detector+temperature stream in bytes: rts; ... rte;
+  if (strcmp(cmd, "rts") == 0) {
+    detReadAndSendBytesWithTempStart();
+    return;
+  }
+
+  if (strcmp(cmd, "rte") == 0) {
+    detReadAndSendBytesWithTempStop();
     return;
   }
 
