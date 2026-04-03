@@ -28,6 +28,9 @@ if 'measuring_OF' not in st.session_state:
 if 'is_started' not in st.session_state:
     st.session_state['is_started'] = False
 
+if 'integration_time' not in st.session_state:
+    st.session_state['integration_time'] = None
+
 st.header("OF Measurement")
 
 filename_prefix = st.text_input("Filename prefix:", value="Output_Factor_")
@@ -75,11 +78,13 @@ with cols[2]:
         ]
         if rows:
             df_rawdata = pd.DataFrame(rows)
+            df_rawdata = df_rawdata.iloc[10:, :].copy()
             df_rawdata["dt_s"] = df_rawdata.dt_us / 1000000
             df = df_rawdata.loc[:, ['idx', 'dt_s', 'ch0_V', 'ch1_V']]
             df.columns = ['Number', 'Time', 'ch0', 'ch1']
             current_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
             integration_value = rows[0]["dt_us"]
+            st.session_state.integration_time = integration_value
 
             header = f"""Output Factor
 Date and time: {current_time}
@@ -121,12 +126,15 @@ while st.session_state['measuring_OF']:
     ]
     if rows:
         df_rawdata_concurrent = pd.DataFrame(rows)
-        df_rawdata_concurrent["dt_s"] = df_rawdata_concurrent.dt_us / 1000000
-        df = df_rawdata_concurrent.loc[:, ['idx', 'dt_s', 'ch0_V', 'ch1_V']]
+        if len(df_rawdata_concurrent) < 10:
+            continue
+        df_rawdata_concurrent_cropped = df_rawdata_concurrent.iloc[10:, :].copy()
+        df_rawdata_concurrent_cropped["dt_s"] = df_rawdata_concurrent_cropped.dt_us / 1000000
+        df = df_rawdata_concurrent_cropped.loc[:, ['idx', 'dt_s', 'ch0_V', 'ch1_V']]
         df.columns = ['Number', 'Time', 'ch0', 'ch1']
         df['chunk'] = df.Number // 400
         df = df.groupby('chunk').agg({'Time': 'median', 'ch0': 'sum', 'ch1': 'sum'})
-        plot_concurrent = px.scatter(df.iloc[:-1, :], x='Time', y='ch0',
+        plot_concurrent = px.scatter(df.iloc[1:-1, :], x='Time', y='ch0',
                                      labels={'Time': 'Time (s)', 'Dose': 'Charge proportional to dose (nC)'})
         concurrent_plot.plotly_chart(plot_concurrent, key=f"of_live_{time.time()}")
 
@@ -193,6 +201,8 @@ if file_now_name != 'select a file...':
 else:
     file_now = 'select a file...'
     acr_used = st.session_state.get("acr_value", 1.0)
+    capacitator = st.session_state.get("rank_value", 1.0)
+    integration_time_us = st.session_state.get("integration_time", 1.0)
 
 if 'file_to_analyze' in st.session_state:
 

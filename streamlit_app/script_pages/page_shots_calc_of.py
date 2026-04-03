@@ -190,7 +190,7 @@ for idx, dset in enumerate(st.session_state['measurement_sets']):
 
         # Reference Field Selection for this Set
         if dset['files']:
-            full_paths = [os.path.join("Measurements", "Shots", f) for f in dset['files']]
+            full_paths = [os.path.join("Measurements", "OF_tables", f) for f in dset['files']]
             df_temp, _ = process_dataset(full_paths, grouping_option, acr_value if recalc_acr else None)
 
             if not df_temp.empty:
@@ -246,7 +246,7 @@ for dset in st.session_state['measurement_sets']:
     if not dset['files'] or dset['ref_value'] is None:
         continue
 
-    full_paths = [os.path.join("Measurements", "Shots", f) for f in dset['files']]
+    full_paths = [os.path.join("Measurements", "OF_tables", f) for f in dset['files']]
     df_res, df_raw = process_dataset(full_paths, grouping_option, acr_value if recalc_acr else None)
 
     if df_res.empty:
