@@ -104,7 +104,7 @@ Integration time: {integration_value} us
 
 while st.session_state['measuring_OF']:
     time.sleep(0.3)
-    buffer_result = mgr.get_rs_capture_buff()
+    buffer_result = mgr.get_rs_capture_buf()
     if not buffer_result.get("ok"):
         continue
     samples = buffer_result.get("samples", [])
@@ -121,11 +121,12 @@ while st.session_state['measuring_OF']:
     ]
     if rows:
         df_rawdata_concurrent = pd.DataFrame(rows)
-        df = df_rawdata.loc[:, ['idx', 'dt_s', 'ch0_V', 'ch1_V']]
+        df_rawdata_concurrent["dt_s"] = df_rawdata_concurrent.dt_us / 1000000
+        df = df_rawdata_concurrent.loc[:, ['idx', 'dt_s', 'ch0_V', 'ch1_V']]
         df.columns = ['Number', 'Time', 'ch0', 'ch1']
         df['chunk'] = df.Number // 400
         df = df.groupby('chunk').agg({'Time': 'median', 'ch0': 'sum', 'ch1': 'sum'})
-        plot_concurrent = px.scatter(df.iloc[:-1, :], x='Time', y='ch1',
+        plot_concurrent = px.scatter(df.iloc[:-1, :], x='Time', y='ch0',
                                      labels={'Time': 'Time (s)', 'Dose': 'Charge proportional to dose (nC)'})
         concurrent_plot.plotly_chart(plot_concurrent, key=f"of_live_{time.time()}")
 
