@@ -180,6 +180,55 @@ AA 55 34
 
 - `start;` / `stop;` remain available for human-readable troubleshooting output over `Serial.print(...)`.
 
+## 4.2) Detector + temperature byte-stream packets (`rts;` / `rte;`)
+
+`rts;` and `rte;` use **binary packets** with the standard `AA 55 <type>` framing.
+
+### Stream start (`rts;`)
+
+Firmware sends:
+
+```text
+AA 55 10 54
+AA 55 35
+<uint32 integration_us>
+```
+
+- `54` is ASCII `'T'` in the ACK packet.
+
+### Stream sample packets (while active)
+
+Firmware emits one packet per integration period:
+
+```text
+AA 55 36
+<uint32 idx>
+<uint32 dt_us>
+<uint16 ch0>
+<uint16 ch1>
+<uint16 temp_raw>
+<uint32 temp_read_us>
+```
+
+- Total packet size: 3 + 18 = 21 bytes.
+- `temp_raw` is the raw MCP9808 ambient-temperature register value (register `0x05`, little-endian).
+- Convert `temp_raw` to °C on the PC side.
+- `temp_read_us` is the temperature read duration in microseconds.
+- GPIO21 (`SERIAL_TIMING_PIN`) is set HIGH before reading temperature and sending the packet, then set LOW after serial transmission.
+
+### Stream stop (`rte;`)
+
+Firmware sends:
+
+```text
+AA 55 10 55
+AA 55 37
+<uint32 total_samples>
+```
+
+- `55` is ASCII `'U'` in the ACK packet.
+- `total_samples` is the number of `0x36` sample packets sent in that streaming session.
+
 ## 5) Move + measure packet (`Qx,y,z,N;`)
 
 For `Q...`, firmware moves then emits:
