@@ -25,6 +25,11 @@ ASCII command string terminated by semicolon:
 - `i700;`
 - `m2000;`
 - `readbytes100;`
+- `avgdet0;`
+- `avgdet1,250;`
+- `sdc;`
+- `sdc10;`
+- `sdc20;`
 - `M10,25.5,-3;`
 - `S10,25.5,-3;`
 - `Q10,25.5,-3,2000;`
@@ -175,6 +180,55 @@ AA 55 34
 
 - `start;` / `stop;` remain available for human-readable troubleshooting output over `Serial.print(...)`.
 
+## 4.2) Detector + temperature byte-stream packets (`rts;` / `rte;`)
+
+`rts;` and `rte;` use **binary packets** with the standard `AA 55 <type>` framing.
+
+### Stream start (`rts;`)
+
+Firmware sends:
+
+```text
+AA 55 10 54
+AA 55 35
+<uint32 integration_us>
+```
+
+- `54` is ASCII `'T'` in the ACK packet.
+
+### Stream sample packets (while active)
+
+Firmware emits one packet per integration period:
+
+```text
+AA 55 36
+<uint32 idx>
+<uint32 dt_us>
+<uint16 ch0>
+<uint16 ch1>
+<uint16 temp_raw>
+<uint32 temp_read_us>
+```
+
+- Total packet size: 3 + 18 = 21 bytes.
+- `temp_raw` is the raw MCP9808 ambient-temperature register value (register `0x05`, little-endian).
+- Convert `temp_raw` to °C on the PC side.
+- `temp_read_us` is the temperature read duration in microseconds.
+- GPIO21 (`SERIAL_TIMING_PIN`) is set HIGH before reading temperature and sending the packet, then set LOW after serial transmission.
+
+### Stream stop (`rte;`)
+
+Firmware sends:
+
+```text
+AA 55 10 55
+AA 55 37
+<uint32 total_samples>
+```
+
+- `55` is ASCII `'U'` in the ACK packet.
+- `total_samples` is the number of `0x36` sample packets sent in that streaming session.
+
 ## 5) Move + measure packet (`Qx,y,z,N;`)
 
 For `Q...`, firmware moves then emits:
@@ -205,7 +259,7 @@ AA 55 <int32 x><int32 y><int32 z>
 
 ---
 
-## 7) Human-readable debug commands (`P;`, `L;`, `D;`, `info;`)
+## 7) Human-readable debug commands (`P;`, `L;`, `D;`, `info;`, `avgdet...;`)
 
 `P;` prints raw 32-bit pulse counter values for all axes using `Serial.print(...)`:
 
@@ -238,6 +292,49 @@ Z min: <int32>, Z max: <int32>
 
 - `L;` is intended for manual debugging in a serial monitor.
 - It does **not** send a binary packet and does **not** emit ACK/ERR framing.
+
+## 7.2) Detector average debug command (`avgdet<channel>[,<samples>];`)
+
+This command performs repeated detector reads and prints one human-readable average:
+
+```text
+Detector average ch<channel> from <samples> samples: <average_volts> V (<average_counts> counts)
+```
+
+- Examples:
+  - `avgdet0;` (defaults to 100 samples)
+  - `avgdet1,250;`
+- `channel` must be `0` or `1`.
+- `<samples>` must be `> 0`; if omitted firmware uses `100`.
+- If `<samples>` exceeds firmware buffer limit, it is clamped to `MEAS_MAX_SAMPLES` with a warning print.
+- Voltage conversion uses the project detector formula: `V = -((counts * 24) / 65535) + 12`.
+- This is a debug/human-readable command and does **not** emit binary ACK/ERR framing.
+
+## 7.3) Set dark current command (`sdc[step];`)
+
+This command runs an automatic dark-current routine targeting detector average voltage `<= -10 V` on both detector channels using AD5675 DAC steps.
+
+- `step` is optional and must be an integer `1..100`.
+- `sdc;` uses default `step=10`.
+- Example: `sdc20;` uses DAC increments of `20`.
+
+Sequence:
+
+1. **Channel 0**
+   - Set DAC code to `0` using `ad5675_write_update(0, 0)`.
+   - Measure `detReadAverageAndPrintHuman(0, 100)`.
+   - If average voltage is greater than `-10 V` (for example `-9 V`), increment DAC code by `+step` and measure again.
+   - Stop when average is `<= -10 V`.
+   - Abort if DAC code reaches `65535`.
+2. **Channel 1**
+   - Repeat the same process, always starting again from DAC code `0`.
+
+Behavior:
+- On success, firmware sends ACK `AA 55 10 73` (`'s'`).
+- On malformed `sdc` payload, firmware sends ERR with `cmd_id='s'`, `err_code=0x01`.
+- On out-of-range `step` (`<1` or `>100`), firmware sends ERR with `cmd_id='s'`, `err_code=0x02`.
+- On runtime failure (I2C error, invalid measurement, or max code reached before target), firmware sends ERR with `cmd_id='s'`, `err_code=0x03`.
+- During the loop firmware prints human-readable status lines with: current DAC `code`, active-channel voltage, and both channel voltage/count averages.
 
 ## 7.1) Binary pcnt32 limits packet (`l;`)
 

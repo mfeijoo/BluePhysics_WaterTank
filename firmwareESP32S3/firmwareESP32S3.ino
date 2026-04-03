@@ -3,24 +3,43 @@
 #include "driver/pcnt.h"
 #include <math.h>
 #include <SPI.h>
+#include <Wire.h>
 #include "Adafruit_MCP9808.h"
 #include "ADS1X15.h"
+#include <Adafruit_FRAM_I2C.h>
 
 //=======================================
 //Temperature create objects
 //=======================================
 
 Adafruit_MCP9808 tempsensor = Adafruit_MCP9808();
+Adafruit_FRAM_I2C fram = Adafruit_FRAM_I2C();
 //ADS1115_WE adc(0x48);
 ADS1115 ADS(0x48);
 
+static const uint8_t FRAM_MARKER_ADDR0 = 0xA5;
+static const uint8_t FRAM_MARKER_ADDR1 = 0x5A;
+static bool fram_ready = false;
+
+enum FramStartupStatus : uint8_t {
+  FRAM_STATUS_MISSING = 0,
+  FRAM_STATUS_PRESENT_NOT_PROGRAMMED = 1,
+  FRAM_STATUS_ALREADY_PROGRAMMED = 2
+};
+
 unsigned int tempbytes;
+float temp;
 
 float PSV;
 static uint16_t pot_value = 0;
 static const float PS_REG_TOLERANCE_V = 0.05f;
 static const uint16_t POT_MIN = 0;
 static const uint16_t POT_MAX = 1023;
+
+// AD5675 DAC (dark-current offset compensation)
+static const uint8_t AD5675_ADDR = 0x0F;
+static const uint8_t AD5675_CMD_WRITE_UPDATE = 0x3;
+static uint16_t dark_current_code[2] = {0, 0};
 #define PSFC 16.1817
 #define PSFCind 0.14022
 //#define PSFC 1
@@ -111,6 +130,7 @@ static const int CS_POT = 36;
 static const int RST_PIN  = 40;
 static const int HOLD_PIN = 41;
 static const int CAP_SEL_0 = 2;
+static const int SERIAL_TIMING_PIN = 21;
 
 // Timing
 static volatile uint32_t integraltimemicros = 700; // default 700 us, can set to 200 us
@@ -283,6 +303,25 @@ static double stepsToPcnt32Delta(int32_t steps) {
 static void sendErr(uint8_t cmd_id, uint8_t err_code);
 static void sendPcnt32LimitsPacket();
 static void sendStepDelaysPacket();
+static float detReadAverageAndPrintHuman(uint8_t channel, uint32_t sampleCount, float *averageCountsOut = nullptr, bool printHuman = true);
+
+static uint8_t ad5675_write_update(uint8_t ch, uint16_t code) {
+  if (ch > 1) return 0;
+
+  // AD5675 channel mapping in this hardware is inverted:
+  // logical ch0 -> DAC channel B, logical ch1 -> DAC channel A.
+  // Swap 0/1 here so user-facing commands dc0/dc1 control expected outputs.
+  uint8_t hw_ch = (uint8_t)(ch ^ 0x01);
+
+  Wire.beginTransmission(AD5675_ADDR);
+  Wire.write((uint8_t)((AD5675_CMD_WRITE_UPDATE << 4) | hw_ch));
+  Wire.write((uint8_t)(code >> 8));
+  Wire.write((uint8_t)(code & 0xFF));
+
+  uint8_t tx_status = (uint8_t)Wire.endTransmission();
+  if (tx_status == 0) dark_current_code[ch] = code;
+  return (tx_status == 0) ? 1 : 0;
+}
 
 static bool parseLimitValue(char *&p, int32_t &out, bool requireComma) {
   char *end = nullptr;
@@ -469,9 +508,16 @@ static bool det_bytes_streaming = false;
 static uint32_t det_bytes_t0_us = 0;
 static uint32_t det_bytes_last_us = 0;
 static uint32_t det_bytes_idx = 0;
+static bool det_temp_bytes_streaming = false;
+static uint32_t det_temp_bytes_t0_us = 0;
+static uint32_t det_temp_bytes_last_us = 0;
+static uint32_t det_temp_bytes_idx = 0;
 static const uint8_t PKT_STREAM_START = 0x32;
 static const uint8_t PKT_STREAM_SAMPLE = 0x33;
 static const uint8_t PKT_STREAM_STOP = 0x34;
+static const uint8_t PKT_TEMP_STREAM_START = 0x35;
+static const uint8_t PKT_TEMP_STREAM_SAMPLE = 0x36;
+static const uint8_t PKT_TEMP_STREAM_STOP = 0x37;
 
 static bool readCmd(char *buf, size_t maxlen) {
   static size_t idx = 0;
@@ -522,6 +568,46 @@ static void sendErr(uint8_t cmd_id, uint8_t err_code) {
   sendPktHeader(0x11);
   Serial.write(cmd_id);
   Serial.write(err_code);
+}
+
+static FramStartupStatus detectFramStatus() {
+  fram_ready = fram.begin();
+  if (!fram_ready) return FRAM_STATUS_MISSING;
+
+  uint8_t marker0 = fram.read(0);
+  uint8_t marker1 = fram.read(1);
+  if (marker0 == FRAM_MARKER_ADDR0 && marker1 == FRAM_MARKER_ADDR1) {
+    return FRAM_STATUS_ALREADY_PROGRAMMED;
+  }
+
+  return FRAM_STATUS_PRESENT_NOT_PROGRAMMED;
+}
+
+static void printFramStatusHuman(FramStartupStatus status) {
+  Serial.print("FRAM status: ");
+  if (status == FRAM_STATUS_MISSING) {
+    Serial.println("missing/init failed");
+  } else if (status == FRAM_STATUS_PRESENT_NOT_PROGRAMMED) {
+    Serial.println("present/not programmed");
+  } else {
+    Serial.println("present/already programmed");
+  }
+}
+
+static void sendFramStatusPacket(FramStartupStatus status) {
+  if (error_messages_human) {
+    printFramStatusHuman(status);
+    return;
+  }
+
+  if (status == FRAM_STATUS_MISSING) {
+    sendErr('f', 0x01);
+  } else {
+    sendAck('f');
+  }
+
+  sendPktHeader(0x40);
+  Serial.write((uint8_t)status);
 }
 
 static void sendCoordsPacket(uint8_t type) {
@@ -676,6 +762,123 @@ static void detReadOnce() {
   digitalWrite(HOLD_PIN, LOW);
 }
 
+static float detReadAverageAndPrintHuman(uint8_t channel, uint32_t sampleCount, float *averageCountsOut, bool printHuman) {
+  if (channel > 1) {
+    Serial.println("Error: channel must be 0 or 1.");
+    return NAN;
+  }
+
+  if (sampleCount == 0) {
+    Serial.println("Error: sample count must be > 0.");
+    return NAN;
+  }
+
+  if (sampleCount > MEAS_MAX_SAMPLES) {
+    Serial.print("Warning: sample count limited to ");
+    Serial.println(MEAS_MAX_SAMPLES);
+    sampleCount = MEAS_MAX_SAMPLES;
+  }
+
+  digitalWrite(RST_PIN, HIGH);
+  digitalWrite(HOLD_PIN, LOW);
+
+  uint64_t sum = 0;
+  uint32_t starttime = micros();
+  uint32_t i = 0;
+  while (i < sampleCount) {
+    if ((uint32_t)(micros() - starttime) >= (uint32_t)integraltimemicros) {
+      detReadOnce();
+      starttime = micros();
+
+      sum += (channel == 0) ? det_ch0 : det_ch1;
+      i++;
+    }
+  }
+
+  float averageCounts = (float)sum / (float)sampleCount;
+  float averageVolts = -((averageCounts * 24.0f) / 65535.0f) + 12.0f;
+  if (averageCountsOut != nullptr) *averageCountsOut = averageCounts;
+
+  if (printHuman) {
+    Serial.print("Detector average ch");
+    Serial.print((int)channel);
+    Serial.print(" from ");
+    Serial.print(sampleCount);
+    Serial.print(" samples: ");
+    Serial.print(averageVolts, 6);
+    Serial.print(" V (");
+    Serial.print(averageCounts, 3);
+    Serial.println(" counts)");
+  }
+
+  return averageVolts;
+}
+
+static bool setDarkCurrentChannelToTarget(uint8_t ch, float targetVolts, uint32_t sampleCount, uint16_t codeStep) {
+  if (ch > 1) return false;
+  if (sampleCount == 0) sampleCount = 100;
+  if (codeStep == 0) codeStep = 1;
+
+  uint16_t code = 0;
+  if (!ad5675_write_update(ch, code)) {
+    Serial.println("Error: AD5675 I2C write failed while setting initial code.");
+    return false;
+  }
+
+  while (true) {
+    float ch0Counts = 0.0f;
+    float ch1Counts = 0.0f;
+    float ch0Volts = detReadAverageAndPrintHuman(0, sampleCount, &ch0Counts, false);
+    float ch1Volts = detReadAverageAndPrintHuman(1, sampleCount, &ch1Counts, false);
+    if (isnan(ch0Volts) || isnan(ch1Volts)) return false;
+
+    float activeVolts = (ch == 0) ? ch0Volts : ch1Volts;
+    Serial.print("sdc status: tuning ch");
+    Serial.print((int)ch);
+    Serial.print(", code=");
+    Serial.print((int)code);
+    Serial.print(", activeV=");
+    Serial.print(activeVolts, 6);
+    Serial.print(" V, ch0=");
+    Serial.print(ch0Volts, 6);
+    Serial.print(" V (");
+    Serial.print(ch0Counts, 3);
+    Serial.print(" counts), ch1=");
+    Serial.print(ch1Volts, 6);
+    Serial.print(" V (");
+    Serial.print(ch1Counts, 3);
+    Serial.println(" counts)");
+
+    if (activeVolts <= targetVolts) return true;
+
+    if (code == 65535) {
+      Serial.print("Warning: dark current ch");
+      Serial.print((int)ch);
+      Serial.println(" reached max DAC code before target voltage.");
+      return false;
+    }
+
+    uint32_t nextCode = (uint32_t)code + (uint32_t)codeStep;
+    if (nextCode > 65535U) nextCode = 65535U;
+    code = (uint16_t)nextCode;
+    if (!ad5675_write_update(ch, code)) {
+      Serial.println("Error: AD5675 I2C write failed during dark current regulation.");
+      return false;
+    }
+  }
+}
+
+static bool setDarkCurrentToMinusTenVolts(uint16_t codeStep) {
+  Serial.print("Set dark current routine: target <= -10.0 V, samples=100, codeStep=");
+  Serial.println((int)codeStep);
+
+  if (!setDarkCurrentChannelToTarget(0, -10.0f, 100, codeStep)) return false;
+  if (!setDarkCurrentChannelToTarget(1, -10.0f, 100, codeStep)) return false;
+
+  Serial.println("Set dark current routine completed.");
+  return true;
+}
+
 
 static void detReadAndPrintHuman(uint32_t N) {
   if (N == 0) {
@@ -708,12 +911,19 @@ static void detReadAndPrintHuman(uint32_t N) {
 
   Serial.println("Detector read results:");
   for (uint32_t j = 0; j < N; j++) {
+    float det_ch0_volts = -((float)measBuf[j].ch0 * 24.0f / 65535.0f) + 12.0f;
+    float det_ch1_volts = -((float)measBuf[j].ch1 * 24.0f / 65535.0f) + 12.0f;
     Serial.print("read ");
     Serial.print(measBuf[j].idx);
     Serial.print(": ch0=");
     Serial.print(measBuf[j].ch0);
     Serial.print(", ch1=");
-    Serial.println(measBuf[j].ch1);
+    Serial.print(measBuf[j].ch1);
+    Serial.print(" counts");
+    Serial.print(det_ch0_volts, 6);
+    Serial.print(" V ");
+    Serial.print(det_ch1_volts, 6);
+    Serial.println(" V");
   }
 }
 
@@ -726,6 +936,7 @@ static void detReadAndPrintHumanStart() {
   det_human_idx = 0;
   det_human_streaming = true;
   det_bytes_streaming = false;
+  det_temp_bytes_streaming = false;
 
   Serial.println("Detector streaming started (idx, dt_us, ch0, ch1)");
 }
@@ -764,6 +975,7 @@ static void detReadAndSendBytesStart() {
   det_bytes_idx = 0;
   det_bytes_streaming = true;
   det_human_streaming = false;
+  det_temp_bytes_streaming = false;
 
   sendAck('s');
   sendPktHeader(PKT_STREAM_START);
@@ -779,6 +991,8 @@ static void detReadAndSendBytesStop() {
   Serial.write((uint8_t*)&det_bytes_idx, 4);
 }
 
+//This function takes only 80 microseconds to send the info via serial
+//measured with osciloscope
 static void detReadAndSendBytesService() {
   if (!det_bytes_streaming) return;
 
@@ -789,13 +1003,72 @@ static void detReadAndSendBytesService() {
   now = micros();
   det_bytes_last_us = now;
 
+  //digitalWrite(SERIAL_TIMING_PIN, HIGH);
   sendPktHeader(PKT_STREAM_SAMPLE);
   Serial.write((uint8_t*)&det_bytes_idx, 4);
   uint32_t dt = (uint32_t)(now - det_bytes_t0_us);
   Serial.write((uint8_t*)&dt, 4);
   Serial.write((uint8_t*)&det_ch0, 2);
   Serial.write((uint8_t*)&det_ch1, 2);
+  //digitalWrite(SERIAL_TIMING_PIN, LOW);
   det_bytes_idx++;
+}
+
+static void detReadAndSendBytesWithTempStart() {
+  digitalWrite(RST_PIN, HIGH);
+  digitalWrite(HOLD_PIN, LOW);
+
+  det_temp_bytes_t0_us = micros();
+  det_temp_bytes_last_us = det_temp_bytes_t0_us;
+  det_temp_bytes_idx = 0;
+  det_temp_bytes_streaming = true;
+  det_bytes_streaming = false;
+  det_human_streaming = false;
+
+  sendAck('T');
+  sendPktHeader(PKT_TEMP_STREAM_START);
+  uint32_t integ = (uint32_t)integraltimemicros;
+  Serial.write((uint8_t*)&integ, 4);
+}
+
+static void detReadAndSendBytesWithTempStop() {
+  det_temp_bytes_streaming = false;
+
+  sendAck('U');
+  sendPktHeader(PKT_TEMP_STREAM_STOP);
+  Serial.write((uint8_t*)&det_temp_bytes_idx, 4);
+}
+
+//This function takes almost 700 micro seconds to execute
+//to measure the temp takes a long time
+//measured with osciloscope
+static void detReadAndSendBytesWithTempService() {
+  if (!det_temp_bytes_streaming) return;
+
+  uint32_t now = micros();
+  if ((uint32_t)(now - det_temp_bytes_last_us) < (uint32_t)integraltimemicros) return;
+
+  detReadOnce();
+  now = micros();
+  det_temp_bytes_last_us = now;
+
+  digitalWrite(SERIAL_TIMING_PIN, HIGH);
+  uint32_t temp_start_us = micros();
+  uint16_t temp_raw = tempsensor.read16(0x05);
+  //uint16_t temp_raw = 32;
+  uint32_t temp_read_us = (uint32_t)(micros() - temp_start_us);
+
+  sendPktHeader(PKT_TEMP_STREAM_SAMPLE);
+  Serial.write((uint8_t*)&det_temp_bytes_idx, 4);
+  uint32_t dt = (uint32_t)(now - det_temp_bytes_t0_us);
+  Serial.write((uint8_t*)&dt, 4);
+  Serial.write((uint8_t*)&det_ch0, 2);
+  Serial.write((uint8_t*)&det_ch1, 2);
+  Serial.write((uint8_t*)&temp_raw, 2);
+  Serial.write((uint8_t*)&temp_read_us, 4);
+  digitalWrite(SERIAL_TIMING_PIN, LOW);
+
+  det_temp_bytes_idx++;
 }
 
 static void detReadAndSendBytes(uint32_t N) {
@@ -909,7 +1182,7 @@ static void regulatePS(float targetV) {
 // Arduino setup/loop
 //============================================================
 void setup() {
-  Serial.begin(115200);
+  Serial.begin(921600);
   delay(200);
 
   pinMode(X_STEP, OUTPUT); pinMode(X_DIR, OUTPUT);
@@ -936,8 +1209,10 @@ void setup() {
   pinMode(RST_PIN, OUTPUT);
   pinMode(HOLD_PIN, OUTPUT);
   pinMode(CAP_SEL_0, OUTPUT);
+  pinMode(SERIAL_TIMING_PIN, OUTPUT);
   digitalWrite(RST_PIN, HIGH);
   digitalWrite(HOLD_PIN, LOW);
+  digitalWrite(SERIAL_TIMING_PIN, LOW);
 
   // Default capacitor selection on startup: internal capacitor.
   selectCapacitor(false);
@@ -992,6 +1267,9 @@ void setup() {
   SPI.endTransaction();
 
   Wire.begin();
+  FramStartupStatus fram_status = detectFramStatus();
+  sendFramStatusPacket(fram_status);
+
   ADS.begin();
   ADS.setGain(0);
 
@@ -1007,7 +1285,7 @@ void setup() {
   Serial.println("Temp Sensor ready");
 
   //Set the PS to 30V at start up
-  regulatePS(30.0);
+  //regulatePS(30.0);
 
 }
 
@@ -1017,23 +1295,31 @@ void loop() {
 
   detReadAndPrintHumanService();
   detReadAndSendBytesService();
+  detReadAndSendBytesWithTempService();
 
   if (!readCmd(cmd, sizeof(cmd))) return;
   if (cmd[0] == 0) return;
 
+  // FRAM status query (always prints a human-readable line)
+  if (cmd[0] == 'f' && cmd[1] == 0) {
+    FramStartupStatus fram_status = detectFramStatus();
+    sendAck('f');
+    printFramStatusHuman(fram_status);
+    return;
+  }
 
   //measure temperature manually
   if (cmd[0] == 't' && cmd[1] == 0) {
     sendAck('t');
-    //Serial.println("Measuring temperature:");
-    //temp = tempsensor.readTempC();
-    //Serial.print(temp);
-    //Serial.println(" C");
-    //delay(500);
-    tempbytes = tempsensor.read16(0x05);
-    Serial.write(0xAA);
-    Serial.write(0x55);
-    Serial.write((uint8_t*)&tempbytes, 2);
+    Serial.println("Measuring temperature:");
+    temp = tempsensor.readTempC();
+    Serial.print(temp);
+    Serial.println(" C");
+    delay(500);
+    //tempbytes = tempsensor.read16(0x05);
+    //Serial.write(0xAA);
+    //Serial.write(0x55);
+    //Serial.write((uint8_t*)&tempbytes, 2);
     return;
   }
 
@@ -1161,6 +1447,77 @@ void loop() {
     return;
   }
 
+  //-----set dark current automatically to <= -10 V on ch0 and ch1: sdc[step];
+  // examples: sdc; (default step 10), sdc10;, sdc20; ... sdc100;
+  if (strncmp(cmd, "sdc", 3) == 0) {
+    uint16_t codeStep = 10;
+    if (cmd[3] != 0) {
+      char *end = nullptr;
+      long stepLong = strtol(cmd + 3, &end, 10);
+      if (end == cmd + 3 || *end != 0) {
+        sendErr('s', 0x01);
+        Serial.println("Error: malformed sdc command. Use sdc; or sdc<1-100>;");
+        return;
+      }
+
+      if (stepLong < 1 || stepLong > 100) {
+        sendErr('s', 0x02);
+        Serial.println("Error: sdc step out of range. Use integer step 1..100.");
+        return;
+      }
+
+      codeStep = (uint16_t)stepLong;
+    }
+
+    if (!setDarkCurrentToMinusTenVolts(codeStep)) {
+      sendErr('s', 0x03);
+      return;
+    }
+
+    sendAck('s');
+    return;
+  }
+
+  //-----set dark-current DAC code: dc<channel>,<code>; e.g. dc0,3000;
+  if (cmd[0] == 'd' && cmd[1] == 'c') {
+    char *p = cmd + 2;
+    char *end = nullptr;
+
+    long ch = strtol(p, &end, 10);
+    if (end == p || *end != ',') {
+      sendErr('c', 0x01);
+      Serial.println("Error: malformed dc command. Use dc<0|1>,<0-65535>;");
+      return;
+    }
+
+    p = end + 1;
+    long code = strtol(p, &end, 10);
+    if (end == p || *end != 0) {
+      sendErr('c', 0x01);
+      Serial.println("Error: malformed dc command. Use dc<0|1>,<0-65535>;");
+      return;
+    }
+
+    if ((ch != 0 && ch != 1) || code < 0 || code > 65535) {
+      sendErr('c', 0x02);
+      Serial.println("Error: dc values out of range. Channel must be 0/1 and code 0..65535.");
+      return;
+    }
+
+    if (!ad5675_write_update((uint8_t)ch, (uint16_t)code)) {
+      sendErr('c', 0x03);
+      Serial.println("Error: AD5675 I2C write failed.");
+      return;
+    }
+
+    sendAck('c');
+    Serial.print("Dark current DAC set: ch");
+    Serial.print((int)ch);
+    Serial.print(" = ");
+    Serial.println((int)code);
+    return;
+  }
+
   //-----set manual potentiometer value: q0; ... q1023;
   if (cmd[0] == 'q') {
     Serial.print("Received command: ");
@@ -1203,6 +1560,35 @@ void loop() {
     return;
   }
 
+  //-----average detector channel and print human-readable result:
+  // avgdet<channel>[,<samples>]; examples: avgdet0; avgdet1,250;
+  if (strncmp(cmd, "avgdet", 6) == 0) {
+    char *p = cmd + 6;
+    char *end = nullptr;
+
+    long ch = strtol(p, &end, 10);
+    if (end == p) {
+      Serial.println("Error: malformed avgdet command. Use avgdet<0|1>[,<samples>];");
+      return;
+    }
+
+    uint32_t samples = 100;
+    if (*end == ',') {
+      p = end + 1;
+      samples = (uint32_t)strtoul(p, &end, 10);
+      if (end == p || *end != 0) {
+        Serial.println("Error: malformed avgdet command. Use avgdet<0|1>[,<samples>];");
+        return;
+      }
+    } else if (*end != 0) {
+      Serial.println("Error: malformed avgdet command. Use avgdet<0|1>[,<samples>];");
+      return;
+    }
+
+    detReadAverageAndPrintHuman((uint8_t)ch, samples, nullptr, true);
+    return;
+  }
+
   //-----read detector values and send bytes: readbytesN; e.g. readbytes100;
   if (strncmp(cmd, "readbytes", 9) == 0) {
     char *end = nullptr;
@@ -1213,6 +1599,19 @@ void loop() {
     }
 
     detReadAndSendBytes(N);
+    return;
+  }
+
+  //-----manual control for GPIO21 timing pin: pin21H; / pin21L;
+  if (strcmp(cmd, "pin21H") == 0) {
+    digitalWrite(SERIAL_TIMING_PIN, HIGH);
+    Serial.println("GPIO21 set HIGH");
+    return;
+  }
+
+  if (strcmp(cmd, "pin21L") == 0) {
+    digitalWrite(SERIAL_TIMING_PIN, LOW);
+    Serial.println("GPIO21 set LOW");
     return;
   }
 
@@ -1235,6 +1634,17 @@ void loop() {
 
   if (strcmp(cmd, "re") == 0) {
     detReadAndSendBytesStop();
+    return;
+  }
+
+  //-----continuous detector+temperature stream in bytes: rts; ... rte;
+  if (strcmp(cmd, "rts") == 0) {
+    detReadAndSendBytesWithTempStart();
+    return;
+  }
+
+  if (strcmp(cmd, "rte") == 0) {
+    detReadAndSendBytesWithTempStop();
     return;
   }
 
