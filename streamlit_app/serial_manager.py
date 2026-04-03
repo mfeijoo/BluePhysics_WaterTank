@@ -42,6 +42,13 @@ class SerialManager:
         self._regulate_started_at = None
         self._regulate_timeout_s = 0.0
 
+        self.dark_current_active = False
+        self._dark_current_text_buf = ""
+        self._dark_current_lines = []
+        self._dark_current_progress = []
+        self._dark_current_started_at = None
+        self._dark_current_timeout_s = 0.0
+
     def is_connected(self) -> bool:
         return self.ser is not None and self.ser.is_open
 
@@ -580,5 +587,134 @@ class SerialManager:
             "lines_new": new_lines,
             "lines": list(self._regulate_lines),
             "progress": list(self._regulate_progress),
+            "progress_ratio": progress_ratio,
+        }
+
+    def _parse_dark_current_status_line(self, line: str):
+        rgx = re.compile(
+            r"sdc status:\s*tuning ch(\d+),\s*code=(\d+),\s*activeV=\s*([-+]?\d+(?:\.\d+)?)\s*V",
+            re.IGNORECASE,
+        )
+        m = rgx.search(line)
+        if not m:
+            return None
+        return {
+            "channel": int(m.group(1)),
+            "code_value": int(m.group(2)),
+            "active_v": float(m.group(3)),
+            "target_v": -10.0,
+        }
+
+    def start_set_dark_current(self, step_value: int, timeout_s: float = 180.0):
+        if not self.is_connected():
+            return {"ok": False, "error": "Not connected."}
+        if self.dark_current_active:
+            return {"ok": False, "error": "Dark current routine already active."}
+
+        step = int(step_value)
+        if step < 1 or step > 100:
+            return {"ok": False, "error": "Dark current step must be in range 1..100."}
+
+        self.dark_current_active = True
+        self._dark_current_text_buf = ""
+        self._dark_current_lines = []
+        self._dark_current_progress = []
+        self._dark_current_started_at = time.time()
+        self._dark_current_timeout_s = float(timeout_s)
+
+        with self.lock:
+            self.ser.reset_input_buffer()
+            self.ser.reset_output_buffer()
+            self.ser.write(f"sdc{step};".encode("ascii"))
+            self.ser.flush()
+
+        return {"ok": True}
+
+    def poll_set_dark_current(self):
+        if not self.dark_current_active:
+            return {"ok": False, "error": "Dark current routine is not active."}
+
+        if (time.time() - self._dark_current_started_at) > self._dark_current_timeout_s:
+            self.dark_current_active = False
+            return {
+                "ok": False,
+                "error": "Timeout waiting for dark current routine completion/error message.",
+                "active": False,
+                "completed": False,
+                "lines": list(self._dark_current_lines),
+                "progress": list(self._dark_current_progress),
+            }
+
+        with self.lock:
+            n = self.ser.in_waiting
+            chunk = self.ser.read(n) if n else b""
+
+        if chunk:
+            self._dark_current_text_buf += chunk.decode("utf-8", errors="replace")
+
+        new_lines = []
+        while "\n" in self._dark_current_text_buf:
+            line, self._dark_current_text_buf = self._dark_current_text_buf.split("\n", 1)
+            clean = line.strip().rstrip("\r")
+            if clean:
+                self._dark_current_lines.append(clean)
+                new_lines.append(clean)
+                point = self._parse_dark_current_status_line(clean)
+                if point is not None:
+                    self._dark_current_progress.append(point)
+
+        terminal_success = False
+        terminal_error = None
+        for line in new_lines:
+            low = line.lower()
+            if "set dark current routine completed." in low:
+                terminal_success = True
+                break
+            if low.startswith("error:") or low.startswith("warning:") or "i2c write failed" in low:
+                terminal_error = line
+                break
+
+        progress_ratio = 0.0
+        if self._dark_current_progress:
+            latest = self._dark_current_progress[-1]
+            channel_ratio = max(0.0, min(1.0, latest["channel"] / 2.0))
+            voltage_progress = max(0.0, min(1.0, (-latest["active_v"]) / 10.0))
+            progress_ratio = max(0.0, min(1.0, channel_ratio + (voltage_progress / 2.0)))
+
+        if terminal_success:
+            self.dark_current_active = False
+            return {
+                "ok": True,
+                "active": False,
+                "completed": True,
+                "failed": False,
+                "lines_new": new_lines,
+                "lines": list(self._dark_current_lines),
+                "progress": list(self._dark_current_progress),
+                "progress_ratio": 1.0,
+            }
+
+        if terminal_error is not None:
+            self.dark_current_active = False
+            return {
+                "ok": False,
+                "active": False,
+                "completed": False,
+                "failed": True,
+                "error": terminal_error,
+                "lines_new": new_lines,
+                "lines": list(self._dark_current_lines),
+                "progress": list(self._dark_current_progress),
+                "progress_ratio": progress_ratio,
+            }
+
+        return {
+            "ok": True,
+            "active": True,
+            "completed": False,
+            "failed": False,
+            "lines_new": new_lines,
+            "lines": list(self._dark_current_lines),
+            "progress": list(self._dark_current_progress),
             "progress_ratio": progress_ratio,
         }
