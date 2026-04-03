@@ -5,6 +5,7 @@ DEFAULT_CONFIG = {
     "acr_value": 1.0,
     "rank_value": 1,
     "regulate_target_v": 42.32,
+    "dark_current_step": 10,
 }
 
 CONFIG_PATH = Path(__file__).resolve().parent / "user_config.json"
