@@ -4,6 +4,7 @@ from pathlib import Path
 DEFAULT_CONFIG = {
     "acr_value": 1.0,
     "rank_value": 1,
+    "integration_time_us": 700,
     "regulate_target_v": 42.32,
     "dark_current_step": 10,
 }
