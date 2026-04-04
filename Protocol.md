@@ -19,6 +19,8 @@ ASCII command string terminated by semicolon:
 - `l;`
 - `D;`
 - `d;`
+- `it;`
+- `itime;`
 - `info;`
 - `stepdelays800,800;`
 - `b;`
@@ -99,6 +101,28 @@ AA 55 23
 - Payload: 24 bytes.
 - Total packet length: 27 bytes.
 - All numeric fields are little-endian.
+
+### Type `0x24` STEP DELAYS
+
+```text
+AA 55 24
+<uint32 step_pulse_us><uint32 step_gap_us>
+```
+
+- Payload: 8 bytes.
+- Total packet length: 11 bytes.
+- All numeric fields are little-endian.
+
+### Type `0x25` INTEGRATION TIME
+
+```text
+AA 55 25
+<uint32 integration_us>
+```
+
+- Payload: 4 bytes.
+- Total packet length: 7 bytes.
+- Returned by `it;` after ACK `AA 55 10 49` (`49` is ASCII `'I'`).
 
 ---
 
@@ -259,7 +283,7 @@ AA 55 <int32 x><int32 y><int32 z>
 
 ---
 
-## 7) Human-readable debug commands (`P;`, `L;`, `D;`, `info;`, `avgdet...;`)
+## 7) Human-readable debug commands (`P;`, `L;`, `D;`, `itime;`, `info;`, `avgdet...;`)
 
 `P;` prints raw 32-bit pulse counter values for all axes using `Serial.print(...)`:
 
@@ -291,6 +315,15 @@ Z min: <int32>, Z max: <int32>
 ```
 
 - `L;` is intended for manual debugging in a serial monitor.
+- It does **not** send a binary packet and does **not** emit ACK/ERR framing.
+
+`itime;` prints the current detector integration time:
+
+```text
+Integration time (us): <uint32>
+```
+
+- `itime;` is intended for manual debugging in a serial monitor.
 - It does **not** send a binary packet and does **not** emit ACK/ERR framing.
 
 ## 7.2) Detector average debug command (`avgdet<channel>[,<samples>];`)

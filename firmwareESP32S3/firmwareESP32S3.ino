@@ -303,6 +303,8 @@ static double stepsToPcnt32Delta(int32_t steps) {
 static void sendErr(uint8_t cmd_id, uint8_t err_code);
 static void sendPcnt32LimitsPacket();
 static void sendStepDelaysPacket();
+static void sendIntegrationTimePacket();
+static void printIntegrationTimeHuman();
 static float detReadAverageAndPrintHuman(uint8_t channel, uint32_t sampleCount, float *averageCountsOut = nullptr, bool printHuman = true);
 
 static uint8_t ad5675_write_update(uint8_t ch, uint16_t code) {
@@ -647,6 +649,12 @@ static void sendStepDelaysPacket() {
   Serial.write((uint8_t*)&gap, 4);
 }
 
+static void sendIntegrationTimePacket() {
+  uint32_t integ = (uint32_t)integraltimemicros;
+  sendPktHeader(0x25);
+  Serial.write((uint8_t*)&integ, 4);
+}
+
 static void printPcnt32ValuesHuman() {
   int32_t x = pcntRead32(pcX);
   int32_t y = yCoord();
@@ -684,6 +692,11 @@ static void printStepDelaysHuman() {
   Serial.println(STEP_PULSE_US);
   Serial.print("STEP_GAP_US: ");
   Serial.println(STEP_GAP_US);
+}
+
+static void printIntegrationTimeHuman() {
+  Serial.print("Integration time (us): ");
+  Serial.println((uint32_t)integraltimemicros);
 }
 
 static void printDeviceInfoHuman() {
@@ -1369,6 +1382,12 @@ void loop() {
     return;
   }
 
+  //-----print current integration time in human-readable text
+  if (strcmp(cmd, "itime") == 0) {
+    printIntegrationTimeHuman();
+    return;
+  }
+
   //-----pcnt32 axis limits in binary packet
   if (cmd[0] == 'l' && cmd[1] == 0) {
     sendAck('l');
@@ -1380,6 +1399,13 @@ void loop() {
   if (cmd[0] == 'd' && cmd[1] == 0) {
     sendAck('d');
     sendStepDelaysPacket();
+    return;
+  }
+
+  //-----integration time in binary packet
+  if (strcmp(cmd, "it") == 0) {
+    sendAck('I');
+    sendIntegrationTimePacket();
     return;
   }
 
