@@ -1,0 +1,9 @@
+Output Factor Table,,,,,,,,,,,
+Date and time: 2026-04-03_11-37-45,,,,,,,,,,,
+ACR used: 1.1,,,,,,,,,,,
+Capacitator used: 1,,,,,,,,,,,
+Integration time: 751 us,,,,,,,,,,,
+Cutoff: 40,,,,,,,,,,,
+shot,sensorcharge_nC,cerenkovcharge_nC,charge_prop_dose_nC,number_pulses,center_x_mm,center_y_mm,field_size_x_mm,field_size_y_mm,nominal_field_size_x_cm,nominal_field_size_y_cm,Sclin_mm
+0,2919.09,290.78,4000.23,1,0,0,100,100,10,10,100
+1,2919.07,290.49,4000.53,1,0,0,100,100,10,10,100

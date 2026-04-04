@@ -1,7 +1,7 @@
 {
   "acr_value": 1.1,
   "rank_value": 1,
-  "integration_time_us": 200,
+  "integration_time_us": 700,
   "regulate_target_v": 42.1,
-  "dark_current_step": 50
+  "dark_current_step": 10
 }
