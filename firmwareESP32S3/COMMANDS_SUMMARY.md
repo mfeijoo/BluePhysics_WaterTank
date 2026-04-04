@@ -37,6 +37,8 @@ All firmware commands are received over serial and must be terminated with a sem
 | Command | What it does |
 |---|---|
 | `i<us>;` | Sets detector integration time in microseconds (clamped internally to 50..50000 µs). |
+| `it;` | Sends current detector integration time as a binary packet (`0x25`) with a `uint32` payload in microseconds. |
+| `itime;` | Prints current detector integration time in microseconds in human-readable text. |
 | `cint;` | Selects internal capacitor (`CAP_SEL_0` LOW) and prints capacitor state. |
 | `cext;` | Selects external capacitor (`CAP_SEL_0` HIGH) and prints capacitor state. |
 | `cstate;` | Prints current capacitor selection state. |
