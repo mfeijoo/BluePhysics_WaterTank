@@ -48,7 +48,8 @@ All firmware commands are received over serial and must be terminated with a sem
 | `start;` | Starts continuous human-readable detector stream (`idx, dt_us, ch0, ch1`). |
 | `stop;` | Stops continuous human-readable detector stream. |
 | `rs;` | Starts continuous binary detector stream. |
-| `re;` | Stops continuous binary detector stream. |
+| `rsp[<threshold>[,<ACR>,<CF>]];` | Starts pulse-count mode on CH0 with optional threshold in volts and optional dose factors (`ACR`, `CF`). Defaults: `threshold=-9.0`, `ACR=1.0`, `CF=1.0`. Examples: `rsp;`, `rsp-9.2;`, `rsp-9.2,1.0,1.0;`, `rsp,1.0,1.0;`. |
+| `re;` | Stops continuous binary detector stream, or if `rsp...;` is active, stops pulse-count mode and prints total pulses, total coincide pulses, and total accumulated dose. |
 | `rts;` | Starts continuous binary detector stream with temperature (detector + MCP9808 raw temp bytes). |
 | `rte;` | Stops continuous binary detector+temperature stream. |
 
