@@ -98,8 +98,8 @@ ftss = [finishTimes.iloc[0]] + list(finishTimes[finishTimes.diff()>2])
 fts = [t + 0.04 for t in ftss]
 
 #Find pulses
-maxvaluech = dfz.loc[(dfz.Time < sts[0] - 1) | (dfz.Time > fts[-1] + 1), 'ch1z'].max()
-dfz['pulse'] = dfz.ch1z > maxvaluech * 1.05
+maxvaluech = dfz.loc[(dfz.Time < sts[0] - 1) | (dfz.Time > fts[-1] + 1), 'ch0z'].max()
+dfz['pulse'] = dfz.ch0z > maxvaluech * 1.05
 dfz.loc[dfz.pulse, 'pulsenum'] = 1
 dfz.fillna({'pulsenum':0}, inplace = True)
 dfz['pulsecoincide'] = dfz.loc[dfz.pulse, 'Number'].diff() == 1
@@ -113,7 +113,7 @@ dfg = dfz.groupby('chunk').agg({'Time':np.median, 'ch0z':np.sum, 'ch1z':np.sum})
 
 fig1 = go.Figure()
 
-fig1.add_trace(go.Scatter(x=dfg.Time, y=dfg.ch1z,
+fig1.add_trace(go.Scatter(x=dfg.Time, y=dfg.ch0z,
                         mode='lines',
                         name='ch0z'))
 
@@ -152,7 +152,7 @@ if calcstd:
 pulseson = st.checkbox('See pulses')
 
 if pulseson:
-    dfz0 = dfz.loc[:, ['Time', 'ch1z']]
+    dfz0 = dfz.loc[:, ['Time', 'ch0z']]
     dfz0.columns = ['Time', 'signal']
     dfz0['ch'] = 'ch0z'
     dfz1 = dfz.loc[:, ['Time', 'ch1z']]
