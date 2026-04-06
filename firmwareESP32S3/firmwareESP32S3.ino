@@ -19,6 +19,8 @@ ADS1115 ADS(0x48);
 
 static const uint8_t FRAM_MARKER_ADDR0 = 0xA5;
 static const uint8_t FRAM_MARKER_ADDR1 = 0x5A;
+static const uint16_t FRAM_WRITE_MIN_ADDR = 0;
+static const uint16_t FRAM_WRITE_MAX_ADDR = 0x7FFF;
 static bool fram_ready = false;
 
 enum FramStartupStatus : uint8_t {
@@ -301,6 +303,7 @@ static double stepsToPcnt32Delta(int32_t steps) {
 }
 
 static void sendErr(uint8_t cmd_id, uint8_t err_code);
+static void sendPktHeader(uint8_t type);
 static void sendPcnt32LimitsPacket();
 static void sendStepDelaysPacket();
 static void sendIntegrationTimePacket();
@@ -407,6 +410,59 @@ static bool trySetStepDelaysFromCommand(char *cmd) {
 
   sendAck('d');
   sendStepDelaysPacket();
+  return true;
+}
+
+static bool tryFramWriteCommand(char *cmd) {
+  // exact format: mw,<address>,<value>;
+  if (cmd[0] != 'm' || cmd[1] != 'w' || cmd[2] != ',') return false;
+
+  char *p = cmd + 3;
+  char *end = nullptr;
+
+  unsigned long address = strtoul(p, &end, 10);
+  if (end == p || *end != ',') {
+    sendErr('w', 0x01);
+    return true;
+  }
+
+  p = end + 1;
+  unsigned long value = strtoul(p, &end, 10);
+  if (end == p || *end != 0) {
+    sendErr('w', 0x01);
+    return true;
+  }
+
+  if (address < FRAM_WRITE_MIN_ADDR || address > FRAM_WRITE_MAX_ADDR || value > 255UL) {
+    sendErr('w', 0x02);
+    return true;
+  }
+
+  if (!fram_ready) fram_ready = fram.begin();
+  if (!fram_ready) {
+    sendErr('w', 0x04);
+    return true;
+  }
+
+  fram.write((uint16_t)address, (uint8_t)value);
+  uint8_t stored = fram.read((uint16_t)address);
+  if (stored != (uint8_t)value) {
+    sendErr('w', 0x05);
+    return true;
+  }
+
+  Serial.print("FRAM write OK: addr=");
+  Serial.print((uint16_t)address);
+  Serial.print(" value=");
+  Serial.println(stored);
+
+  sendAck('w');
+
+  // typed packet: address (uint16_t) + stored value (uint8_t)
+  sendPktHeader(0x41);
+  uint16_t addr16 = (uint16_t)address;
+  Serial.write((uint8_t*)&addr16, 2);
+  Serial.write(stored);
   return true;
 }
 
@@ -1416,6 +1472,11 @@ void loop() {
 
   //-----set step timings: stepdelays<pulse_us>,<gap_us>;
   if (trySetStepDelaysFromCommand(cmd)) {
+    return;
+  }
+
+  //-----manual FRAM byte write with verification: mw,<address>,<value>;
+  if (tryFramWriteCommand(cmd)) {
     return;
   }
 
