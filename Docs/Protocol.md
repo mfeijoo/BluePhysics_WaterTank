@@ -99,6 +99,7 @@ The system supports the following operations (firmware + app):
 - Error frame `AA 55 11 73 05`: target voltage out of range
 - Error frame `AA 55 11 73 06`: regulation failed (e.g. I2C write failure / max code before target)
 - Error frame `AA 55 11 73 07`: step out of range
+
 ---
 
 # Measurement Timing
