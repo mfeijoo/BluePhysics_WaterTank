@@ -508,6 +508,17 @@ static bool det_bytes_streaming = false;
 static uint32_t det_bytes_t0_us = 0;
 static uint32_t det_bytes_last_us = 0;
 static uint32_t det_bytes_idx = 0;
+static bool det_pulse_count_streaming = false;
+static uint32_t det_pulse_last_us = 0;
+static uint32_t det_pulse_t0_us = 0;
+static uint32_t det_pulse_idx = 0;
+static uint32_t det_pulse_count = 0;
+static uint32_t det_pulse_coincide_count = 0;
+static bool det_pulse_prev_above_threshold = false;
+static float det_pulse_threshold_v = 0.0f;
+static float det_pulse_acr = 1.0f;
+static float det_pulse_cf = 1.0f;
+static double det_pulse_accumulated_dose = 0.0;
 static bool det_temp_bytes_streaming = false;
 static uint32_t det_temp_bytes_t0_us = 0;
 static uint32_t det_temp_bytes_last_us = 0;
@@ -1069,6 +1080,86 @@ static void detReadAndSendBytesWithTempService() {
   digitalWrite(SERIAL_TIMING_PIN, LOW);
 
   det_temp_bytes_idx++;
+}
+
+static void detReadAndCountPulsesStart(float thresholdVolts, float acr, float cf) {
+  digitalWrite(RST_PIN, HIGH);
+  digitalWrite(HOLD_PIN, LOW);
+
+  det_pulse_last_us = micros();
+  det_pulse_t0_us = det_pulse_last_us;
+  det_pulse_idx = 0;
+  det_pulse_count = 0;
+  det_pulse_coincide_count = 0;
+  det_pulse_prev_above_threshold = false;
+  det_pulse_threshold_v = thresholdVolts;
+  det_pulse_acr = acr;
+  det_pulse_cf = cf;
+  det_pulse_accumulated_dose = 0.0;
+  det_pulse_count_streaming = true;
+  det_bytes_streaming = false;
+  det_human_streaming = false;
+  det_temp_bytes_streaming = false;
+
+  // Keep stream packet format identical to rs;/re;
+  sendAck('s');
+  sendPktHeader(PKT_STREAM_START);
+  uint32_t integ = (uint32_t)integraltimemicros;
+  Serial.write((uint8_t*)&integ, 4);
+
+  Serial.print("Pulse counting started on ch0 with threshold ");
+  Serial.print(det_pulse_threshold_v, 6);
+  Serial.print(" V, ACR=");
+  Serial.print(det_pulse_acr, 6);
+  Serial.print(", CF=");
+  Serial.println(det_pulse_cf, 6);
+}
+
+static void detReadAndCountPulsesStopAndPrint() {
+  det_pulse_count_streaming = false;
+
+  // Keep stream packet format identical to rs;/re;
+  sendAck('e');
+  sendPktHeader(PKT_STREAM_STOP);
+  Serial.write((uint8_t*)&det_pulse_idx, 4);
+
+  Serial.print("Pulse counting stopped. Total pulses on ch0: ");
+  Serial.println(det_pulse_count);
+  Serial.print("Total coincide pulses on ch0: ");
+  Serial.println(det_pulse_coincide_count);
+  Serial.print("Total accumulated dose: ");
+  Serial.println((float)det_pulse_accumulated_dose, 6);
+}
+
+static void detReadAndCountPulsesService() {
+  if (!det_pulse_count_streaming) return;
+
+  uint32_t now = micros();
+  if ((uint32_t)(now - det_pulse_last_us) < (uint32_t)integraltimemicros) return;
+
+  detReadOnce();
+  det_pulse_last_us = micros();
+
+  sendPktHeader(PKT_STREAM_SAMPLE);
+  Serial.write((uint8_t*)&det_pulse_idx, 4);
+  uint32_t dt = (uint32_t)(det_pulse_last_us - det_pulse_t0_us);
+  Serial.write((uint8_t*)&dt, 4);
+  Serial.write((uint8_t*)&det_ch0, 2);
+  Serial.write((uint8_t*)&det_ch1, 2);
+  det_pulse_idx++;
+
+  float det_ch0_volts = detCountsToVolts(det_ch0);
+  float det_ch1_volts = detCountsToVolts(det_ch1);
+  float dose_sample = (det_ch0_volts - (det_ch1_volts * det_pulse_acr)) * det_pulse_cf;
+  det_pulse_accumulated_dose += (double)dose_sample;
+
+  bool aboveThreshold = (det_ch0_volts > det_pulse_threshold_v);
+  if (aboveThreshold && !det_pulse_prev_above_threshold) {
+    det_pulse_count++;
+  } else if (aboveThreshold && det_pulse_prev_above_threshold) {
+    det_pulse_coincide_count++;
+  }
+  det_pulse_prev_above_threshold = aboveThreshold;
 }
 
 static void detReadAndSendBytes(uint32_t N) {
