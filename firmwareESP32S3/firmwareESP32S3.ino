@@ -773,6 +773,10 @@ static void detReadOnce() {
   digitalWrite(HOLD_PIN, LOW);
 }
 
+static float detCountsToVolts(float counts) {
+  return -((counts * 24.0f) / 65535.0f) + 12.0f;
+}
+
 static float detReadAverageAndPrintHuman(uint8_t channel, uint32_t sampleCount, float *averageCountsOut, bool printHuman) {
   if (channel > 1) {
     Serial.println("Error: channel must be 0 or 1.");
@@ -807,7 +811,7 @@ static float detReadAverageAndPrintHuman(uint8_t channel, uint32_t sampleCount, 
   }
 
   float averageCounts = (float)sum / (float)sampleCount;
-  float averageVolts = -((averageCounts * 24.0f) / 65535.0f) + 12.0f;
+  float averageVolts = detCountsToVolts(averageCounts);
   if (averageCountsOut != nullptr) *averageCountsOut = averageCounts;
 
   if (printHuman) {
@@ -922,8 +926,8 @@ static void detReadAndPrintHuman(uint32_t N) {
 
   Serial.println("Detector read results:");
   for (uint32_t j = 0; j < N; j++) {
-    float det_ch0_volts = -((float)measBuf[j].ch0 * 24.0f / 65535.0f) + 12.0f;
-    float det_ch1_volts = -((float)measBuf[j].ch1 * 24.0f / 65535.0f) + 12.0f;
+    float det_ch0_volts = detCountsToVolts(measBuf[j].ch0);
+    float det_ch1_volts = detCountsToVolts(measBuf[j].ch1);
     Serial.print("read ");
     Serial.print(measBuf[j].idx);
     Serial.print(": ch0=");
@@ -985,6 +989,7 @@ static void detReadAndSendBytesStart() {
   det_bytes_last_us = det_bytes_t0_us;
   det_bytes_idx = 0;
   det_bytes_streaming = true;
+  det_pulse_count_streaming = false;
   det_human_streaming = false;
   det_temp_bytes_streaming = false;
 
@@ -1034,6 +1039,7 @@ static void detReadAndSendBytesWithTempStart() {
   det_temp_bytes_idx = 0;
   det_temp_bytes_streaming = true;
   det_bytes_streaming = false;
+  det_pulse_count_streaming = false;
   det_human_streaming = false;
 
   sendAck('T');
@@ -1387,6 +1393,7 @@ void loop() {
   detReadAndPrintHumanService();
   detReadAndSendBytesService();
   detReadAndSendBytesWithTempService();
+  detReadAndCountPulsesService();
 
   if (!readCmd(cmd, sizeof(cmd))) return;
   if (cmd[0] == 0) return;
@@ -1718,13 +1725,88 @@ void loop() {
   }
 
   //-----continuous detector stream in bytes: rs; ... re;
+  //-----pulse-count detector mode with optional threshold and dose factors:
+  //     rsp[<threshold>[,<ACR>[,<CF>]]]; ... re;
+  //     defaults: threshold=-9.0, ACR=1.0, CF=1.0
+  //     examples: rsp; / rsp-9.2; / rsp-9.2,1.15,0.73; / rsp,1.15,0.73;
+  if (strncmp(cmd, "rsp", 3) == 0) {
+    float thresholdV = -9.0f;
+    float acr = 1.0f;
+    float cf = 1.0f;
+    char *p = cmd + 3;
+
+    if (*p == 0) {
+      detReadAndCountPulsesStart(thresholdV, acr, cf);
+      return;
+    }
+
+    if (*p == ',') {
+      char *endAcr = nullptr;
+      acr = strtof(p + 1, &endAcr);
+      if (endAcr == p + 1) {
+        Serial.println("Error: malformed rsp command. Invalid ACR value.");
+        return;
+      }
+
+      if (*endAcr == ',') {
+        char *endCf = nullptr;
+        cf = strtof(endAcr + 1, &endCf);
+        if (endCf == endAcr + 1 || *endCf != 0) {
+          Serial.println("Error: malformed rsp command. Invalid CF value.");
+          return;
+        }
+      } else if (*endAcr != 0) {
+        Serial.println("Error: malformed rsp command. Use rsp[<threshold>[,<ACR>[,<CF>]]];");
+        return;
+      }
+    } else {
+      char *endThreshold = nullptr;
+      thresholdV = strtof(p, &endThreshold);
+      if (endThreshold == p) {
+        Serial.println("Error: malformed rsp command. Invalid threshold value.");
+        return;
+      }
+
+      if (*endThreshold == ',') {
+        char *endAcr = nullptr;
+        acr = strtof(endThreshold + 1, &endAcr);
+        if (endAcr == endThreshold + 1) {
+          Serial.println("Error: malformed rsp command. Invalid ACR value.");
+          return;
+        }
+
+        if (*endAcr == ',') {
+          char *endCf = nullptr;
+          cf = strtof(endAcr + 1, &endCf);
+          if (endCf == endAcr + 1 || *endCf != 0) {
+            Serial.println("Error: malformed rsp command. Invalid CF value.");
+            return;
+          }
+        } else if (*endAcr != 0) {
+          Serial.println("Error: malformed rsp command. Use rsp[<threshold>[,<ACR>[,<CF>]]];");
+          return;
+        }
+      } else if (*endThreshold != 0) {
+        Serial.println("Error: malformed rsp command. Use rsp[<threshold>[,<ACR>[,<CF>]]];");
+        return;
+      }
+    }
+
+    detReadAndCountPulsesStart(thresholdV, acr, cf);
+    return;
+  }
+
   if (strcmp(cmd, "rs") == 0) {
     detReadAndSendBytesStart();
     return;
   }
 
   if (strcmp(cmd, "re") == 0) {
-    detReadAndSendBytesStop();
+    if (det_pulse_count_streaming) {
+      detReadAndCountPulsesStopAndPrint();
+    } else {
+      detReadAndSendBytesStop();
+    }
     return;
   }
 
