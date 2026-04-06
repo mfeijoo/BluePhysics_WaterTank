@@ -894,6 +894,19 @@ static bool setDarkCurrentToMinusTenVolts(uint16_t codeStep) {
   return true;
 }
 
+static bool setDarkCurrentToTargetVoltage(float targetVolts, uint16_t codeStep) {
+  Serial.print("Set dark current routine: target <= ");
+  Serial.print(targetVolts, 4);
+  Serial.print(" V, samples=100, codeStep=");
+  Serial.println((int)codeStep);
+
+  if (!setDarkCurrentChannelToTarget(0, targetVolts, 100, codeStep)) return false;
+  if (!setDarkCurrentChannelToTarget(1, targetVolts, 100, codeStep)) return false;
+
+  Serial.println("Set dark current routine completed.");
+  return true;
+}
+
 
 static void detReadAndPrintHuman(uint32_t N) {
   if (N == 0) {
@@ -1569,6 +1582,73 @@ void loop() {
 
     if (!setDarkCurrentToMinusTenVolts(codeStep)) {
       sendErr('s', 0x03);
+      return;
+    }
+
+    sendAck('s');
+    return;
+  }
+
+  //-----set dark current automatically to <= target volts on ch0 and ch1: sdcv[target][,step];
+  // examples:
+  //   sdcv;            (default target -10.0 V, default step 10)
+  //   sdcv-10.2;       (target -10.2 V, default step 10)
+  //   sdcv-10.2,25;    (target -10.2 V, step 25)
+  //   sdcv,25;         (default target -10.0 V, step 25)
+  if (strncmp(cmd, "sdcv", 4) == 0) {
+    float targetVolts = -10.0f;
+    uint16_t codeStep = 10;
+    char *p = cmd + 4;
+
+    if (*p != 0) {
+      char *end = nullptr;
+
+      // Optional explicit default-target marker: sdcv,<step>;
+      if (*p == ',') {
+        p++;
+      } else {
+        targetVolts = strtof(p, &end);
+        if (end == p) {
+          sendErr('s', 0x04);
+          Serial.println("Error: malformed sdcv command. Use sdcv; sdcv<-10.5..0.0>; or sdcv<-10.5..0.0>,<1-100>;");
+          return;
+        }
+        p = end;
+      }
+
+      // Optional code step part: ,<1..100>
+      if (*p == ',') {
+        long stepLong = strtol(p + 1, &end, 10);
+        if (end == (p + 1) || *end != 0) {
+          sendErr('s', 0x04);
+          Serial.println("Error: malformed sdcv command. Step must be integer 1..100.");
+          return;
+        }
+
+        if (stepLong < 1 || stepLong > 100) {
+          sendErr('s', 0x07);
+          Serial.println("Error: sdcv step out of range. Use integer step 1..100.");
+          return;
+        }
+
+        codeStep = (uint16_t)stepLong;
+      } else if (*p != 0) {
+        sendErr('s', 0x04);
+        Serial.println("Error: malformed sdcv command. Use comma before step: sdcv-10.0,10;");
+        return;
+      }
+    }
+
+    // Project formula: V = -((counts * 24.0) / 65535.0) + 12.0
+    // Valid negative detector target range requested by protocol.
+    if (targetVolts < -10.5f || targetVolts > 0.0f) {
+      sendErr('s', 0x05);
+      Serial.println("Error: sdcv target out of range. Use target voltage from -10.5 V to 0.0 V.");
+      return;
+    }
+
+    if (!setDarkCurrentToTargetVoltage(targetVolts, codeStep)) {
+      sendErr('s', 0x06);
       return;
     }
 

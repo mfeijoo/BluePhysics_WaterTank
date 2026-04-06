@@ -74,6 +74,31 @@ The system supports the following operations (firmware + app):
 - This command intentionally bypasses configured axis limits
 - Error frame `AA 55 11 75 01` indicates malformed command or unsupported axis
 
+## 14. Dark-Current DAC Set Command
+- Send `dc<channel>,<code>;` over serial
+- Channel must be `0` or `1`
+- Code must be in range `0..65535`
+- Examples: `dc0,3000;`, `dc1,65535;`
+- Firmware writes AD5675 over I2C and updates the requested channel output immediately
+- ACK frame: `AA 55 10 63`
+- Error frame `AA 55 11 63 01`: malformed command
+- Error frame `AA 55 11 63 02`: channel/code out of range
+- Error frame `AA 55 11 63 03`: I2C write failure
+
+## 15. Dark-Current Auto Target-Voltage Command
+- Send `sdcv;`, `sdcv<target_voltage>;`, `sdcv<target_voltage>,<step>;`, or `sdcv,<step>;` over serial
+- `target_voltage` is a float in volts, valid range: `-10.5 .. 0.0`
+- `step` is an integer DAC code increment, valid range: `1..100` (default `10`)
+- Default target is `-10.0 V` when omitted (`sdcv;`)
+- Example: `sdcv-10.2,25;`
+- Firmware runs the same automatic dark-current loop used by `sdc`, for ch0 then ch1
+- During regulation, detector average voltage is computed from counts using project formula:
+  - `V = -((counts * 24.0) / 65535.0) + 12.0`
+- ACK frame: `AA 55 10 73`
+- Error frame `AA 55 11 73 04`: malformed `sdcv` command
+- Error frame `AA 55 11 73 05`: target voltage out of range
+- Error frame `AA 55 11 73 06`: regulation failed (e.g. I2C write failure / max code before target)
+- Error frame `AA 55 11 73 07`: step out of range
 ---
 
 # Measurement Timing
@@ -113,4 +138,3 @@ Streaming mode is non-blocking and designed to prevent firmware RAM overflow.
 ---
 
 # Repository Structure
-
