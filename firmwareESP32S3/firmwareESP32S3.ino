@@ -1560,7 +1560,7 @@ void loop() {
 
   //-----set dark current automatically to <= -10 V on ch0 and ch1: sdc[step];
   // examples: sdc; (default step 10), sdc10;, sdc20; ... sdc100;
-  if (strncmp(cmd, "sdc", 3) == 0) {
+  if (strncmp(cmd, "sdc", 3) == 0 && cmd[3] != 'v') {
     uint16_t codeStep = 10;
     if (cmd[3] != 0) {
       char *end = nullptr;
