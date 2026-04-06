@@ -85,6 +85,21 @@ The system supports the following operations (firmware + app):
 - Error frame `AA 55 11 63 02`: channel/code out of range
 - Error frame `AA 55 11 63 03`: I2C write failure
 
+## 15. Dark-Current Auto Target-Voltage Command
+- Send `sdcv;`, `sdcv<target_voltage>;`, `sdcv<target_voltage>,<step>;`, or `sdcv,<step>;` over serial
+- `target_voltage` is a float in volts, valid range: `-10.5 .. 0.0`
+- `step` is an integer DAC code increment, valid range: `1..100` (default `10`)
+- Default target is `-10.0 V` when omitted (`sdcv;`)
+- Example: `sdcv-10.2,25;`
+- Firmware runs the same automatic dark-current loop used by `sdc`, for ch0 then ch1
+- During regulation, detector average voltage is computed from counts using project formula:
+  - `V = -((counts * 24.0) / 65535.0) + 12.0`
+- ACK frame: `AA 55 10 73`
+- Error frame `AA 55 11 73 04`: malformed `sdcv` command
+- Error frame `AA 55 11 73 05`: target voltage out of range
+- Error frame `AA 55 11 73 06`: regulation failed (e.g. I2C write failure / max code before target)
+- Error frame `AA 55 11 73 07`: step out of range
+
 ---
 
 # Measurement Timing
@@ -124,4 +139,3 @@ Streaming mode is non-blocking and designed to prevent firmware RAM overflow.
 ---
 
 # Repository Structure
-
