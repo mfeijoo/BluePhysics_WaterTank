@@ -47,6 +47,8 @@ All firmware commands are received over serial and must be terminated with a sem
 | `stop;` | Stops continuous human-readable detector stream. |
 | `rs;` | Starts continuous binary detector stream. |
 | `re;` | Stops continuous binary detector stream. |
+| `pin21H;` | Forces GPIO21 (`SERIAL_TIMING_PIN`) to HIGH for debug/oscilloscope checks. |
+| `pin21L;` | Forces GPIO21 (`SERIAL_TIMING_PIN`) to LOW for debug/oscilloscope checks. |
 
 ## Dark Current DAC (AD5675)
 
