@@ -303,6 +303,8 @@ static double stepsToPcnt32Delta(int32_t steps) {
 static void sendErr(uint8_t cmd_id, uint8_t err_code);
 static void sendPcnt32LimitsPacket();
 static void sendStepDelaysPacket();
+static void sendIntegrationTimePacket();
+static void printIntegrationTimeHuman();
 static float detReadAverageAndPrintHuman(uint8_t channel, uint32_t sampleCount, float *averageCountsOut = nullptr, bool printHuman = true);
 
 static uint8_t ad5675_write_update(uint8_t ch, uint16_t code) {
@@ -508,9 +510,27 @@ static bool det_bytes_streaming = false;
 static uint32_t det_bytes_t0_us = 0;
 static uint32_t det_bytes_last_us = 0;
 static uint32_t det_bytes_idx = 0;
+static bool det_pulse_count_streaming = false;
+static uint32_t det_pulse_last_us = 0;
+static uint32_t det_pulse_t0_us = 0;
+static uint32_t det_pulse_idx = 0;
+static uint32_t det_pulse_count = 0;
+static uint32_t det_pulse_coincide_count = 0;
+static bool det_pulse_prev_above_threshold = false;
+static float det_pulse_threshold_v = 0.0f;
+static float det_pulse_acr = 1.0f;
+static float det_pulse_cf = 1.0f;
+static double det_pulse_accumulated_dose = 0.0;
+static bool det_temp_bytes_streaming = false;
+static uint32_t det_temp_bytes_t0_us = 0;
+static uint32_t det_temp_bytes_last_us = 0;
+static uint32_t det_temp_bytes_idx = 0;
 static const uint8_t PKT_STREAM_START = 0x32;
 static const uint8_t PKT_STREAM_SAMPLE = 0x33;
 static const uint8_t PKT_STREAM_STOP = 0x34;
+static const uint8_t PKT_TEMP_STREAM_START = 0x35;
+static const uint8_t PKT_TEMP_STREAM_SAMPLE = 0x36;
+static const uint8_t PKT_TEMP_STREAM_STOP = 0x37;
 
 static bool readCmd(char *buf, size_t maxlen) {
   static size_t idx = 0;
@@ -640,6 +660,12 @@ static void sendStepDelaysPacket() {
   Serial.write((uint8_t*)&gap, 4);
 }
 
+static void sendIntegrationTimePacket() {
+  uint32_t integ = (uint32_t)integraltimemicros;
+  sendPktHeader(0x25);
+  Serial.write((uint8_t*)&integ, 4);
+}
+
 static void printPcnt32ValuesHuman() {
   int32_t x = pcntRead32(pcX);
   int32_t y = yCoord();
@@ -677,6 +703,11 @@ static void printStepDelaysHuman() {
   Serial.println(STEP_PULSE_US);
   Serial.print("STEP_GAP_US: ");
   Serial.println(STEP_GAP_US);
+}
+
+static void printIntegrationTimeHuman() {
+  Serial.print("Integration time (us): ");
+  Serial.println((uint32_t)integraltimemicros);
 }
 
 static void printDeviceInfoHuman() {
@@ -755,6 +786,10 @@ static void detReadOnce() {
   digitalWrite(HOLD_PIN, LOW);
 }
 
+static float detCountsToVolts(float counts) {
+  return -((counts * 24.0f) / 65535.0f) + 12.0f;
+}
+
 static float detReadAverageAndPrintHuman(uint8_t channel, uint32_t sampleCount, float *averageCountsOut, bool printHuman) {
   if (channel > 1) {
     Serial.println("Error: channel must be 0 or 1.");
@@ -789,7 +824,7 @@ static float detReadAverageAndPrintHuman(uint8_t channel, uint32_t sampleCount, 
   }
 
   float averageCounts = (float)sum / (float)sampleCount;
-  float averageVolts = -((averageCounts * 24.0f) / 65535.0f) + 12.0f;
+  float averageVolts = detCountsToVolts(averageCounts);
   if (averageCountsOut != nullptr) *averageCountsOut = averageCounts;
 
   if (printHuman) {
@@ -872,6 +907,19 @@ static bool setDarkCurrentToMinusTenVolts(uint16_t codeStep) {
   return true;
 }
 
+static bool setDarkCurrentToTargetVoltage(float targetVolts, uint16_t codeStep) {
+  Serial.print("Set dark current routine: target <= ");
+  Serial.print(targetVolts, 4);
+  Serial.print(" V, samples=100, codeStep=");
+  Serial.println((int)codeStep);
+
+  if (!setDarkCurrentChannelToTarget(0, targetVolts, 100, codeStep)) return false;
+  if (!setDarkCurrentChannelToTarget(1, targetVolts, 100, codeStep)) return false;
+
+  Serial.println("Set dark current routine completed.");
+  return true;
+}
+
 
 static void detReadAndPrintHuman(uint32_t N) {
   if (N == 0) {
@@ -904,8 +952,8 @@ static void detReadAndPrintHuman(uint32_t N) {
 
   Serial.println("Detector read results:");
   for (uint32_t j = 0; j < N; j++) {
-    float det_ch0_volts = -((float)measBuf[j].ch0 * 24.0f / 65535.0f) + 12.0f;
-    float det_ch1_volts = -((float)measBuf[j].ch1 * 24.0f / 65535.0f) + 12.0f;
+    float det_ch0_volts = detCountsToVolts(measBuf[j].ch0);
+    float det_ch1_volts = detCountsToVolts(measBuf[j].ch1);
     Serial.print("read ");
     Serial.print(measBuf[j].idx);
     Serial.print(": ch0=");
@@ -929,6 +977,7 @@ static void detReadAndPrintHumanStart() {
   det_human_idx = 0;
   det_human_streaming = true;
   det_bytes_streaming = false;
+  det_temp_bytes_streaming = false;
 
   Serial.println("Detector streaming started (idx, dt_us, ch0, ch1)");
 }
@@ -966,7 +1015,9 @@ static void detReadAndSendBytesStart() {
   det_bytes_last_us = det_bytes_t0_us;
   det_bytes_idx = 0;
   det_bytes_streaming = true;
+  det_pulse_count_streaming = false;
   det_human_streaming = false;
+  det_temp_bytes_streaming = false;
 
   sendAck('s');
   sendPktHeader(PKT_STREAM_START);
@@ -982,6 +1033,8 @@ static void detReadAndSendBytesStop() {
   Serial.write((uint8_t*)&det_bytes_idx, 4);
 }
 
+//This function takes only 80 microseconds to send the info via serial
+//measured with osciloscope
 static void detReadAndSendBytesService() {
   if (!det_bytes_streaming) return;
 
@@ -1001,6 +1054,144 @@ static void detReadAndSendBytesService() {
   Serial.write((uint8_t*)&det_ch1, 2);
   digitalWrite(SERIAL_TIMING_PIN, LOW);
   det_bytes_idx++;
+}
+
+static void detReadAndSendBytesWithTempStart() {
+  digitalWrite(RST_PIN, HIGH);
+  digitalWrite(HOLD_PIN, LOW);
+
+  det_temp_bytes_t0_us = micros();
+  det_temp_bytes_last_us = det_temp_bytes_t0_us;
+  det_temp_bytes_idx = 0;
+  det_temp_bytes_streaming = true;
+  det_bytes_streaming = false;
+  det_pulse_count_streaming = false;
+  det_human_streaming = false;
+
+  sendAck('T');
+  sendPktHeader(PKT_TEMP_STREAM_START);
+  uint32_t integ = (uint32_t)integraltimemicros;
+  Serial.write((uint8_t*)&integ, 4);
+}
+
+static void detReadAndSendBytesWithTempStop() {
+  det_temp_bytes_streaming = false;
+
+  sendAck('U');
+  sendPktHeader(PKT_TEMP_STREAM_STOP);
+  Serial.write((uint8_t*)&det_temp_bytes_idx, 4);
+}
+
+//This function takes almost 700 micro seconds to execute
+//to measure the temp takes a long time
+//measured with osciloscope
+static void detReadAndSendBytesWithTempService() {
+  if (!det_temp_bytes_streaming) return;
+
+  uint32_t now = micros();
+  if ((uint32_t)(now - det_temp_bytes_last_us) < (uint32_t)integraltimemicros) return;
+
+  detReadOnce();
+  now = micros();
+  det_temp_bytes_last_us = now;
+
+  digitalWrite(SERIAL_TIMING_PIN, HIGH);
+  uint32_t temp_start_us = micros();
+  uint16_t temp_raw = tempsensor.read16(0x05);
+  //uint16_t temp_raw = 32;
+  uint32_t temp_read_us = (uint32_t)(micros() - temp_start_us);
+
+  sendPktHeader(PKT_TEMP_STREAM_SAMPLE);
+  Serial.write((uint8_t*)&det_temp_bytes_idx, 4);
+  uint32_t dt = (uint32_t)(now - det_temp_bytes_t0_us);
+  Serial.write((uint8_t*)&dt, 4);
+  Serial.write((uint8_t*)&det_ch0, 2);
+  Serial.write((uint8_t*)&det_ch1, 2);
+  Serial.write((uint8_t*)&temp_raw, 2);
+  Serial.write((uint8_t*)&temp_read_us, 4);
+  digitalWrite(SERIAL_TIMING_PIN, LOW);
+
+  det_temp_bytes_idx++;
+}
+
+static void detReadAndCountPulsesStart(float thresholdVolts, float acr, float cf) {
+  digitalWrite(RST_PIN, HIGH);
+  digitalWrite(HOLD_PIN, LOW);
+
+  det_pulse_last_us = micros();
+  det_pulse_t0_us = det_pulse_last_us;
+  det_pulse_idx = 0;
+  det_pulse_count = 0;
+  det_pulse_coincide_count = 0;
+  det_pulse_prev_above_threshold = false;
+  det_pulse_threshold_v = thresholdVolts;
+  det_pulse_acr = acr;
+  det_pulse_cf = cf;
+  det_pulse_accumulated_dose = 0.0;
+  det_pulse_count_streaming = true;
+  det_bytes_streaming = false;
+  det_human_streaming = false;
+  det_temp_bytes_streaming = false;
+
+  // Keep stream packet format identical to rs;/re;
+  sendAck('s');
+  sendPktHeader(PKT_STREAM_START);
+  uint32_t integ = (uint32_t)integraltimemicros;
+  Serial.write((uint8_t*)&integ, 4);
+
+  Serial.print("Pulse counting started on ch0 with threshold ");
+  Serial.print(det_pulse_threshold_v, 6);
+  Serial.print(" V, ACR=");
+  Serial.print(det_pulse_acr, 6);
+  Serial.print(", CF=");
+  Serial.println(det_pulse_cf, 6);
+}
+
+static void detReadAndCountPulsesStopAndPrint() {
+  det_pulse_count_streaming = false;
+
+  // Keep stream packet format identical to rs;/re;
+  sendAck('e');
+  sendPktHeader(PKT_STREAM_STOP);
+  Serial.write((uint8_t*)&det_pulse_idx, 4);
+
+  Serial.print("Pulse counting stopped. Total pulses on ch0: ");
+  Serial.println(det_pulse_count);
+  Serial.print("Total coincide pulses on ch0: ");
+  Serial.println(det_pulse_coincide_count);
+  Serial.print("Total accumulated dose: ");
+  Serial.println((float)det_pulse_accumulated_dose, 6);
+}
+
+static void detReadAndCountPulsesService() {
+  if (!det_pulse_count_streaming) return;
+
+  uint32_t now = micros();
+  if ((uint32_t)(now - det_pulse_last_us) < (uint32_t)integraltimemicros) return;
+
+  detReadOnce();
+  det_pulse_last_us = micros();
+
+  sendPktHeader(PKT_STREAM_SAMPLE);
+  Serial.write((uint8_t*)&det_pulse_idx, 4);
+  uint32_t dt = (uint32_t)(det_pulse_last_us - det_pulse_t0_us);
+  Serial.write((uint8_t*)&dt, 4);
+  Serial.write((uint8_t*)&det_ch0, 2);
+  Serial.write((uint8_t*)&det_ch1, 2);
+  det_pulse_idx++;
+
+  float det_ch0_volts = detCountsToVolts(det_ch0);
+  float det_ch1_volts = detCountsToVolts(det_ch1);
+  float dose_sample = (det_ch0_volts - (det_ch1_volts * det_pulse_acr)) * det_pulse_cf;
+  det_pulse_accumulated_dose += (double)dose_sample;
+
+  bool aboveThreshold = (det_ch0_volts > det_pulse_threshold_v);
+  if (aboveThreshold && !det_pulse_prev_above_threshold) {
+    det_pulse_count++;
+  } else if (aboveThreshold && det_pulse_prev_above_threshold) {
+    det_pulse_coincide_count++;
+  }
+  det_pulse_prev_above_threshold = aboveThreshold;
 }
 
 static void detReadAndSendBytes(uint32_t N) {
@@ -1114,7 +1305,7 @@ static void regulatePS(float targetV) {
 // Arduino setup/loop
 //============================================================
 void setup() {
-  Serial.begin(115200);
+  Serial.begin(921600);
   delay(200);
 
   pinMode(X_STEP, OUTPUT); pinMode(X_DIR, OUTPUT);
@@ -1227,6 +1418,8 @@ void loop() {
 
   detReadAndPrintHumanService();
   detReadAndSendBytesService();
+  detReadAndSendBytesWithTempService();
+  detReadAndCountPulsesService();
 
   if (!readCmd(cmd, sizeof(cmd))) return;
   if (cmd[0] == 0) return;
@@ -1300,6 +1493,12 @@ void loop() {
     return;
   }
 
+  //-----print current integration time in human-readable text
+  if (strcmp(cmd, "itime") == 0) {
+    printIntegrationTimeHuman();
+    return;
+  }
+
   //-----pcnt32 axis limits in binary packet
   if (cmd[0] == 'l' && cmd[1] == 0) {
     sendAck('l');
@@ -1311,6 +1510,13 @@ void loop() {
   if (cmd[0] == 'd' && cmd[1] == 0) {
     sendAck('d');
     sendStepDelaysPacket();
+    return;
+  }
+
+  //-----integration time in binary packet
+  if (strcmp(cmd, "it") == 0) {
+    sendAck('I');
+    sendIntegrationTimePacket();
     return;
   }
 
@@ -1380,7 +1586,7 @@ void loop() {
 
   //-----set dark current automatically to <= -10 V on ch0 and ch1: sdc[step];
   // examples: sdc; (default step 10), sdc10;, sdc20; ... sdc100;
-  if (strncmp(cmd, "sdc", 3) == 0) {
+  if (strncmp(cmd, "sdc", 3) == 0 && cmd[3] != 'v') {
     uint16_t codeStep = 10;
     if (cmd[3] != 0) {
       char *end = nullptr;
@@ -1402,6 +1608,73 @@ void loop() {
 
     if (!setDarkCurrentToMinusTenVolts(codeStep)) {
       sendErr('s', 0x03);
+      return;
+    }
+
+    sendAck('s');
+    return;
+  }
+
+  //-----set dark current automatically to <= target volts on ch0 and ch1: sdcv[target][,step];
+  // examples:
+  //   sdcv;            (default target -10.0 V, default step 10)
+  //   sdcv-10.2;       (target -10.2 V, default step 10)
+  //   sdcv-10.2,25;    (target -10.2 V, step 25)
+  //   sdcv,25;         (default target -10.0 V, step 25)
+  if (strncmp(cmd, "sdcv", 4) == 0) {
+    float targetVolts = -10.0f;
+    uint16_t codeStep = 10;
+    char *p = cmd + 4;
+
+    if (*p != 0) {
+      char *end = nullptr;
+
+      // Optional explicit default-target marker: sdcv,<step>;
+      if (*p == ',') {
+        p++;
+      } else {
+        targetVolts = strtof(p, &end);
+        if (end == p) {
+          sendErr('s', 0x04);
+          Serial.println("Error: malformed sdcv command. Use sdcv; sdcv<-10.5..0.0>; or sdcv<-10.5..0.0>,<1-100>;");
+          return;
+        }
+        p = end;
+      }
+
+      // Optional code step part: ,<1..100>
+      if (*p == ',') {
+        long stepLong = strtol(p + 1, &end, 10);
+        if (end == (p + 1) || *end != 0) {
+          sendErr('s', 0x04);
+          Serial.println("Error: malformed sdcv command. Step must be integer 1..100.");
+          return;
+        }
+
+        if (stepLong < 1 || stepLong > 100) {
+          sendErr('s', 0x07);
+          Serial.println("Error: sdcv step out of range. Use integer step 1..100.");
+          return;
+        }
+
+        codeStep = (uint16_t)stepLong;
+      } else if (*p != 0) {
+        sendErr('s', 0x04);
+        Serial.println("Error: malformed sdcv command. Use comma before step: sdcv-10.0,10;");
+        return;
+      }
+    }
+
+    // Project formula: V = -((counts * 24.0) / 65535.0) + 12.0
+    // Valid negative detector target range requested by protocol.
+    if (targetVolts < -10.5f || targetVolts > 0.0f) {
+      sendErr('s', 0x05);
+      Serial.println("Error: sdcv target out of range. Use target voltage from -10.5 V to 0.0 V.");
+      return;
+    }
+
+    if (!setDarkCurrentToTargetVoltage(targetVolts, codeStep)) {
+      sendErr('s', 0x06);
       return;
     }
 
@@ -1558,13 +1831,99 @@ void loop() {
   }
 
   //-----continuous detector stream in bytes: rs; ... re;
+  //-----pulse-count detector mode with optional threshold and dose factors:
+  //     rsp[<threshold>[,<ACR>[,<CF>]]]; ... re;
+  //     defaults: threshold=-9.0, ACR=1.0, CF=1.0
+  //     examples: rsp; / rsp-9.2; / rsp-9.2,1.15,0.73; / rsp,1.15,0.73;
+  if (strncmp(cmd, "rsp", 3) == 0) {
+    float thresholdV = -9.0f;
+    float acr = 1.0f;
+    float cf = 1.0f;
+    char *p = cmd + 3;
+
+    if (*p == 0) {
+      detReadAndCountPulsesStart(thresholdV, acr, cf);
+      return;
+    }
+
+    if (*p == ',') {
+      char *endAcr = nullptr;
+      acr = strtof(p + 1, &endAcr);
+      if (endAcr == p + 1) {
+        Serial.println("Error: malformed rsp command. Invalid ACR value.");
+        return;
+      }
+
+      if (*endAcr == ',') {
+        char *endCf = nullptr;
+        cf = strtof(endAcr + 1, &endCf);
+        if (endCf == endAcr + 1 || *endCf != 0) {
+          Serial.println("Error: malformed rsp command. Invalid CF value.");
+          return;
+        }
+      } else if (*endAcr != 0) {
+        Serial.println("Error: malformed rsp command. Use rsp[<threshold>[,<ACR>[,<CF>]]];");
+        return;
+      }
+    } else {
+      char *endThreshold = nullptr;
+      thresholdV = strtof(p, &endThreshold);
+      if (endThreshold == p) {
+        Serial.println("Error: malformed rsp command. Invalid threshold value.");
+        return;
+      }
+
+      if (*endThreshold == ',') {
+        char *endAcr = nullptr;
+        acr = strtof(endThreshold + 1, &endAcr);
+        if (endAcr == endThreshold + 1) {
+          Serial.println("Error: malformed rsp command. Invalid ACR value.");
+          return;
+        }
+
+        if (*endAcr == ',') {
+          char *endCf = nullptr;
+          cf = strtof(endAcr + 1, &endCf);
+          if (endCf == endAcr + 1 || *endCf != 0) {
+            Serial.println("Error: malformed rsp command. Invalid CF value.");
+            return;
+          }
+        } else if (*endAcr != 0) {
+          Serial.println("Error: malformed rsp command. Use rsp[<threshold>[,<ACR>[,<CF>]]];");
+          return;
+        }
+      } else if (*endThreshold != 0) {
+        Serial.println("Error: malformed rsp command. Use rsp[<threshold>[,<ACR>[,<CF>]]];");
+        return;
+      }
+    }
+
+    detReadAndCountPulsesStart(thresholdV, acr, cf);
+    return;
+  }
+
   if (strcmp(cmd, "rs") == 0) {
     detReadAndSendBytesStart();
     return;
   }
 
   if (strcmp(cmd, "re") == 0) {
-    detReadAndSendBytesStop();
+    if (det_pulse_count_streaming) {
+      detReadAndCountPulsesStopAndPrint();
+    } else {
+      detReadAndSendBytesStop();
+    }
+    return;
+  }
+
+  //-----continuous detector+temperature stream in bytes: rts; ... rte;
+  if (strcmp(cmd, "rts") == 0) {
+    detReadAndSendBytesWithTempStart();
+    return;
+  }
+
+  if (strcmp(cmd, "rte") == 0) {
+    detReadAndSendBytesWithTempStop();
     return;
   }
 

@@ -1,0 +1,5 @@
+.idea/*
+streamlit_app/.idea/*
+streamlit_app/Measurements/*
+streamlit_app/user_config.json
+streamlit_app/__pycache__/*

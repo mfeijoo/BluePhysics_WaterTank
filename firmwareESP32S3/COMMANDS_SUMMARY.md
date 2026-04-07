@@ -37,6 +37,8 @@ All firmware commands are received over serial and must be terminated with a sem
 | Command | What it does |
 |---|---|
 | `i<us>;` | Sets detector integration time in microseconds (clamped internally to 50..50000 µs). |
+| `it;` | Sends current detector integration time as a binary packet (`0x25`) with a `uint32` payload in microseconds. |
+| `itime;` | Prints current detector integration time in microseconds in human-readable text. |
 | `cint;` | Selects internal capacitor (`CAP_SEL_0` LOW) and prints capacitor state. |
 | `cext;` | Selects external capacitor (`CAP_SEL_0` HIGH) and prints capacitor state. |
 | `cstate;` | Prints current capacitor selection state. |
@@ -49,6 +51,10 @@ All firmware commands are received over serial and must be terminated with a sem
 | `re;` | Stops continuous binary detector stream. |
 | `pin21H;` | Forces GPIO21 (`SERIAL_TIMING_PIN`) to HIGH for debug/oscilloscope checks. |
 | `pin21L;` | Forces GPIO21 (`SERIAL_TIMING_PIN`) to LOW for debug/oscilloscope checks. |
+| `rsp[<threshold>[,<ACR>,<CF>]];` | Starts pulse-count mode on CH0 with optional threshold in volts and optional dose factors (`ACR`, `CF`). Defaults: `threshold=-9.0`, `ACR=1.0`, `CF=1.0`. During `rsp`, detector samples are streamed in the **same binary packet format as `rs;`**. Examples: `rsp;`, `rsp-9.2;`, `rsp-9.2,1.0,1.0;`, `rsp,1.0,1.0;`. |
+| `re;` | Stops continuous binary detector stream, or if `rsp...;` is active, stops pulse-count mode with the same binary stop packet format as `rs;` and then prints totals (pulses, coincide pulses, accumulated dose) in human-readable text. |
+| `rts;` | Starts continuous binary detector stream with temperature (detector + MCP9808 raw temp bytes). |
+| `rte;` | Stops continuous binary detector+temperature stream. |
 
 ## Dark Current DAC (AD5675)
 
@@ -56,6 +62,7 @@ All firmware commands are received over serial and must be terminated with a sem
 |---|---|
 | `dc<0|1>,<0-65535>;` | Sets AD5675 dark-current compensation DAC code for channel 0 or 1. Examples: `dc0,3000;`, `dc1,65535;`. |
 | `sdc[1-100];` | Runs automatic dark-current setup for both channels: starts each channel at DAC code `0`, measures with 100 samples, increments DAC code by the selected step (`1..100`) while average voltage is above `-10 V`, and stops when average is `<= -10 V` (or max DAC code is reached). `sdc;` defaults to step `10`, while `sdc20;` uses step `20`. During the loop, firmware prints status lines with current code, active channel voltage, and both channel volt/count averages. Sequence runs for ch0 first, then ch1. |
+| `sdcv[<target_v>][,<step>];` | Runs automatic dark-current setup with configurable target voltage (float) and optional code step. Valid target range is `-10.5 .. 0.0 V` and valid `step` is integer `1..100`. Defaults: target `-10.0 V`, step `10` (`sdcv;`). Examples: `sdcv-10.2;`, `sdcv-10.2,25;`, `sdcv,25;`. Runs ch0 then ch1. Detector voltage is computed from counts using project formula `V = -((counts * 24.0) / 65535.0) + 12.0`. |
 
 ## Power Supply / Potentiometer
 
