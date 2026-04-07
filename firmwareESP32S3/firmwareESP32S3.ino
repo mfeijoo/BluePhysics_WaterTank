@@ -14,7 +14,7 @@
 
 Adafruit_MCP9808 tempsensor = Adafruit_MCP9808();
 Adafruit_FRAM_I2C fram = Adafruit_FRAM_I2C();
-//ADS1115_WE adc(0x48);
+//ADS1115_WE adc(0x48);F
 ADS1115 ADS(0x48);
 
 static const uint8_t FRAM_MARKER_ADDR0 = 0xA5;
