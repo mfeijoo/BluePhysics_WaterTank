@@ -17,6 +17,10 @@ Adafruit_FRAM_I2C fram = Adafruit_FRAM_I2C();
 //ADS1115_WE adc(0x48);
 ADS1115 ADS(0x48);
 
+static const int I2C_SDA_PIN = 8;
+static const int I2C_SCL_PIN = 9;
+static const uint32_t I2C_FREQ_HZ = 100000;
+
 static bool fram_ready = false;
 static const uint16_t FRAM_MAX_ADDR = 32767;
 static const uint16_t FRAM_ADDR_MAGIC0 = 0;
@@ -593,7 +597,7 @@ static void sendErr(uint8_t cmd_id, uint8_t err_code) {
 
 static bool ensureFramReady() {
   if (fram_ready) return true;
-  fram_ready = fram.begin();
+  fram_ready = fram.begin(MB85RC_DEFAULT_ADDRESS, &Wire);
   return fram_ready;
 }
 
@@ -694,7 +698,7 @@ static void runFramCheckHuman() {
 }
 
 static FramStartupStatus detectFramStatus() {
-  fram_ready = fram.begin();
+  fram_ready = fram.begin(MB85RC_DEFAULT_ADDRESS, &Wire);
   if (!fram_ready) return FRAM_STATUS_MISSING;
 
   uint8_t marker0 = fram.read(FRAM_ADDR_MAGIC0);
@@ -1500,7 +1504,7 @@ void setup() {
 
   SPI.endTransaction();
 
-  Wire.begin();
+  Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN, I2C_FREQ_HZ);
   FramStartupStatus fram_status = detectFramStatus();
   sendFramStatusPacket(fram_status);
 
