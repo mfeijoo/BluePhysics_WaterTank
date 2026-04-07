@@ -100,6 +100,29 @@ The system supports the following operations (firmware + app):
 - Error frame `AA 55 11 73 06`: regulation failed (e.g. I2C write failure / max code before target)
 - Error frame `AA 55 11 73 07`: step out of range
 
+## 16. FRAM Memory Commands (Human-Readable)
+- `framinit;`
+  - Initializes FRAM header bytes and layout version at addresses `0..2`.
+- `framchk;`
+  - Runs FRAM presence + header + scratch write/read/restore checks.
+  - Prints `FRAM_CHECK: PASS` or `FRAM_CHECK: FAIL`.
+- `framw<address>,<value>;`
+  - Writes one byte into FRAM.
+  - Valid ranges: `address=0..32767`, `value=0..255`.
+  - Example: `framw0,11;`
+- `framr<address>;`
+  - Reads one byte from FRAM and prints `FRAM[address] = value`.
+  - Example: `framr0;`
+- `framvset<integer>,<decimal>;`
+  - Stores ideal detector voltage as two bytes:
+    - integer part at address `10` (`40..50`)
+    - decimal part at address `11` (`0..99`)
+  - Example: `framvset42,12;` (stores `42.12 V`)
+- `framv;`
+  - Reads addresses `10` and `11` and prints `Ideal detector voltage: XX.YY V`.
+
+For full FRAM address map and future allocation rules, see `Docs/FRAM_MEMORY_MAP.md`.
+
 ---
 
 # Measurement Timing

@@ -17,9 +17,17 @@ Adafruit_FRAM_I2C fram = Adafruit_FRAM_I2C();
 //ADS1115_WE adc(0x48);
 ADS1115 ADS(0x48);
 
-static const uint8_t FRAM_MARKER_ADDR0 = 0xA5;
-static const uint8_t FRAM_MARKER_ADDR1 = 0x5A;
 static bool fram_ready = false;
+static const uint16_t FRAM_MAX_ADDR = 32767;
+static const uint16_t FRAM_ADDR_MAGIC0 = 0;
+static const uint16_t FRAM_ADDR_MAGIC1 = 1;
+static const uint16_t FRAM_ADDR_LAYOUT_VERSION = 2;
+static const uint16_t FRAM_ADDR_SCRATCH = 3;
+static const uint16_t FRAM_ADDR_IDEAL_VOLT_INT = 10;
+static const uint16_t FRAM_ADDR_IDEAL_VOLT_DEC = 11;
+static const uint8_t FRAM_MAGIC0 = 0x42; // 'B'
+static const uint8_t FRAM_MAGIC1 = 0x50; // 'P'
+static const uint8_t FRAM_LAYOUT_VERSION = 0x01;
 
 enum FramStartupStatus : uint8_t {
   FRAM_STATUS_MISSING = 0,
@@ -583,13 +591,116 @@ static void sendErr(uint8_t cmd_id, uint8_t err_code) {
   Serial.write(err_code);
 }
 
+static bool ensureFramReady() {
+  if (fram_ready) return true;
+  fram_ready = fram.begin();
+  return fram_ready;
+}
+
+static bool framAddrValid(uint16_t addr) {
+  return addr <= FRAM_MAX_ADDR;
+}
+
+static bool framWriteByte(uint16_t addr, uint8_t value) {
+  if (!ensureFramReady()) return false;
+  if (!framAddrValid(addr)) return false;
+  fram.write(addr, value);
+  return true;
+}
+
+static bool framReadByte(uint16_t addr, uint8_t &value) {
+  if (!ensureFramReady()) return false;
+  if (!framAddrValid(addr)) return false;
+  value = fram.read(addr);
+  return true;
+}
+
+static bool framInitLayout() {
+  return framWriteByte(FRAM_ADDR_MAGIC0, FRAM_MAGIC0) &&
+         framWriteByte(FRAM_ADDR_MAGIC1, FRAM_MAGIC1) &&
+         framWriteByte(FRAM_ADDR_LAYOUT_VERSION, FRAM_LAYOUT_VERSION);
+}
+
+static void printFramIdealVoltageHuman() {
+  uint8_t vInt = 0;
+  uint8_t vDec = 0;
+  if (!framReadByte(FRAM_ADDR_IDEAL_VOLT_INT, vInt) || !framReadByte(FRAM_ADDR_IDEAL_VOLT_DEC, vDec)) {
+    Serial.println("FRAM voltage read failed: FRAM missing or address error.");
+    return;
+  }
+
+  if (vInt < 40 || vInt > 50 || vDec > 99) {
+    Serial.print("Ideal detector voltage value out of expected range: ");
+    Serial.print((int)vInt);
+    Serial.print(".");
+    if (vDec < 10) Serial.print("0");
+    Serial.print((int)vDec);
+    Serial.println(" V");
+    return;
+  }
+
+  Serial.print("Ideal detector voltage: ");
+  Serial.print((int)vInt);
+  Serial.print(".");
+  if (vDec < 10) Serial.print("0");
+  Serial.print((int)vDec);
+  Serial.println(" V");
+}
+
+static void runFramCheckHuman() {
+  Serial.println("FRAM check started...");
+
+  if (!ensureFramReady()) {
+    Serial.println("FRAM_CHECK: FAIL (FRAM missing/init failed)");
+    return;
+  }
+
+  uint8_t m0 = 0, m1 = 0, ver = 0;
+  bool hdrOk = framReadByte(FRAM_ADDR_MAGIC0, m0) &&
+               framReadByte(FRAM_ADDR_MAGIC1, m1) &&
+               framReadByte(FRAM_ADDR_LAYOUT_VERSION, ver) &&
+               (m0 == FRAM_MAGIC0) &&
+               (m1 == FRAM_MAGIC1) &&
+               (ver == FRAM_LAYOUT_VERSION);
+
+  uint8_t oldScratch = 0;
+  uint8_t testWrite = 0xA5;
+  uint8_t testRead = 0;
+  bool scratchOk = framReadByte(FRAM_ADDR_SCRATCH, oldScratch);
+  if (scratchOk) {
+    if (oldScratch == testWrite) testWrite = 0x5A;
+    scratchOk = framWriteByte(FRAM_ADDR_SCRATCH, testWrite) &&
+                framReadByte(FRAM_ADDR_SCRATCH, testRead) &&
+                (testRead == testWrite) &&
+                framWriteByte(FRAM_ADDR_SCRATCH, oldScratch);
+  }
+
+  Serial.print("Header: ");
+  Serial.println(hdrOk ? "OK" : "FAIL");
+  Serial.print("Scratch write/read: ");
+  Serial.println(scratchOk ? "OK" : "FAIL");
+  Serial.print("Header bytes now: ");
+  Serial.print((int)m0);
+  Serial.print(", ");
+  Serial.print((int)m1);
+  Serial.print(", ");
+  Serial.println((int)ver);
+
+  if (hdrOk && scratchOk) {
+    Serial.println("FRAM_CHECK: PASS");
+  } else {
+    Serial.println("FRAM_CHECK: FAIL");
+  }
+}
+
 static FramStartupStatus detectFramStatus() {
   fram_ready = fram.begin();
   if (!fram_ready) return FRAM_STATUS_MISSING;
 
-  uint8_t marker0 = fram.read(0);
-  uint8_t marker1 = fram.read(1);
-  if (marker0 == FRAM_MARKER_ADDR0 && marker1 == FRAM_MARKER_ADDR1) {
+  uint8_t marker0 = fram.read(FRAM_ADDR_MAGIC0);
+  uint8_t marker1 = fram.read(FRAM_ADDR_MAGIC1);
+  uint8_t version = fram.read(FRAM_ADDR_LAYOUT_VERSION);
+  if (marker0 == FRAM_MAGIC0 && marker1 == FRAM_MAGIC1 && version == FRAM_LAYOUT_VERSION) {
     return FRAM_STATUS_ALREADY_PROGRAMMED;
   }
 
@@ -1423,6 +1534,134 @@ void loop() {
 
   if (!readCmd(cmd, sizeof(cmd))) return;
   if (cmd[0] == 0) return;
+
+  //-----FRAM write byte: framw<address>,<value>;
+  if (strncmp(cmd, "framw", 5) == 0) {
+    char *p = cmd + 5;
+    char *end = nullptr;
+    long addrLong = strtol(p, &end, 10);
+    if (end == p || *end != ',') {
+      Serial.println("Error: malformed framw command. Use framw<address>,<value>;");
+      return;
+    }
+
+    p = end + 1;
+    long valueLong = strtol(p, &end, 10);
+    if (end == p || *end != 0) {
+      Serial.println("Error: malformed framw command. Use framw<address>,<value>;");
+      return;
+    }
+
+    if (addrLong < 0 || addrLong > FRAM_MAX_ADDR || valueLong < 0 || valueLong > 255) {
+      Serial.println("Error: framw values out of range. Address 0..32767, value 0..255.");
+      return;
+    }
+
+    uint16_t addr = (uint16_t)addrLong;
+    uint8_t value = (uint8_t)valueLong;
+    if (!framWriteByte(addr, value)) {
+      Serial.println("Error: framw failed (FRAM missing/init failed or invalid address).");
+      return;
+    }
+
+    Serial.print("OK framw addr=");
+    Serial.print(addr);
+    Serial.print(" value=");
+    Serial.println((int)value);
+    return;
+  }
+
+  //-----FRAM read byte: framr<address>;
+  if (strncmp(cmd, "framr", 5) == 0) {
+    char *p = cmd + 5;
+    char *end = nullptr;
+    long addrLong = strtol(p, &end, 10);
+    if (end == p || *end != 0) {
+      Serial.println("Error: malformed framr command. Use framr<address>;");
+      return;
+    }
+
+    if (addrLong < 0 || addrLong > FRAM_MAX_ADDR) {
+      Serial.println("Error: framr address out of range. Address 0..32767.");
+      return;
+    }
+
+    uint8_t value = 0;
+    if (!framReadByte((uint16_t)addrLong, value)) {
+      Serial.println("Error: framr failed (FRAM missing/init failed or invalid address).");
+      return;
+    }
+
+    Serial.print("FRAM[");
+    Serial.print((uint16_t)addrLong);
+    Serial.print("] = ");
+    Serial.println((int)value);
+    return;
+  }
+
+  //-----FRAM initialize known layout marker bytes: framinit;
+  if (strcmp(cmd, "framinit") == 0) {
+    if (!framInitLayout()) {
+      Serial.println("FRAM init failed (FRAM missing/init failed or write error).");
+      return;
+    }
+    Serial.print("FRAM layout initialized: magic=");
+    Serial.print((int)FRAM_MAGIC0);
+    Serial.print(",");
+    Serial.print((int)FRAM_MAGIC1);
+    Serial.print(" version=");
+    Serial.println((int)FRAM_LAYOUT_VERSION);
+    return;
+  }
+
+  //-----FRAM check (presence + key bytes + write/read scratch): framchk;
+  if (strcmp(cmd, "framchk") == 0) {
+    runFramCheckHuman();
+    return;
+  }
+
+  //-----Set ideal voltage fields: framvset<integer>,<decimal>;
+  if (strncmp(cmd, "framvset", 8) == 0) {
+    char *p = cmd + 8;
+    char *end = nullptr;
+    long vIntLong = strtol(p, &end, 10);
+    if (end == p || *end != ',') {
+      Serial.println("Error: malformed framvset command. Use framvset<40-50>,<0-99>;");
+      return;
+    }
+
+    p = end + 1;
+    long vDecLong = strtol(p, &end, 10);
+    if (end == p || *end != 0) {
+      Serial.println("Error: malformed framvset command. Use framvset<40-50>,<0-99>;");
+      return;
+    }
+
+    if (vIntLong < 40 || vIntLong > 50 || vDecLong < 0 || vDecLong > 99) {
+      Serial.println("Error: framvset out of range. Integer 40..50, decimal 0..99.");
+      return;
+    }
+
+    if (!framWriteByte(FRAM_ADDR_IDEAL_VOLT_INT, (uint8_t)vIntLong) ||
+        !framWriteByte(FRAM_ADDR_IDEAL_VOLT_DEC, (uint8_t)vDecLong)) {
+      Serial.println("Error: framvset failed (FRAM missing/init failed or write error).");
+      return;
+    }
+
+    Serial.print("OK framvset ");
+    Serial.print((int)vIntLong);
+    Serial.print(".");
+    if (vDecLong < 10) Serial.print("0");
+    Serial.print((int)vDecLong);
+    Serial.println(" V");
+    return;
+  }
+
+  //-----Read ideal voltage fields from FRAM: framv;
+  if (strcmp(cmd, "framv") == 0) {
+    printFramIdealVoltageHuman();
+    return;
+  }
 
   // FRAM status query (always prints a human-readable line)
   if (cmd[0] == 'f' && cmd[1] == 0) {

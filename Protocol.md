@@ -22,6 +22,12 @@ ASCII command string terminated by semicolon:
 - `it;`
 - `itime;`
 - `info;`
+- `framinit;`
+- `framchk;`
+- `framw0,11;`
+- `framr0;`
+- `framvset42,12;`
+- `framv;`
 - `stepdelays800,800;`
 - `b;`
 - `i700;`
@@ -123,6 +129,41 @@ AA 55 25
 - Payload: 4 bytes.
 - Total packet length: 7 bytes.
 - Returned by `it;` after ACK `AA 55 10 49` (`49` is ASCII `'I'`).
+
+---
+
+## 2.1) FRAM human-readable commands
+
+The FRAM maintenance/configuration commands are **human-readable only** (`Serial.print`) and do not have dedicated binary packet payload types.
+
+- `framinit;`  
+  Initializes FRAM header bytes:
+  - address `0` = `0x42` (`'B'`)
+  - address `1` = `0x50` (`'P'`)
+  - address `2` = layout version (`0x01`)
+
+- `framchk;`  
+  Performs FRAM health checks:
+  1. FRAM presence/init
+  2. Header check (`0..2`)
+  3. Scratch write/read/restore at address `3`  
+  Prints `FRAM_CHECK: PASS` or `FRAM_CHECK: FAIL`.
+
+- `framw<address>,<value>;`  
+  Writes one byte to FRAM.  
+  Valid ranges: `address=0..32767`, `value=0..255`.
+
+- `framr<address>;`  
+  Reads one byte from FRAM and prints `FRAM[address] = value`.
+
+- `framvset<integer>,<decimal>;`  
+  Stores ideal detector voltage as split bytes:
+  - address `10` = integer part (`40..50`)
+  - address `11` = decimal part (`0..99`)  
+  Example: `framvset42,12;` stores `42.12 V`.
+
+- `framv;`  
+  Reads addresses `10` and `11` and prints the ideal detector voltage in `XX.YY V` format.
 
 ---
 

@@ -7,6 +7,12 @@ All firmware commands are received over serial and must be terminated with a sem
 | Command | What it does |
 |---|---|
 | `f;` | Queries FRAM startup/programming status and prints the result in human-readable text. |
+| `framinit;` | Initializes FRAM layout header bytes (`magic/version`) at addresses `0..2`. |
+| `framchk;` | Runs FRAM presence + header + scratch write/read verification and prints `FRAM_CHECK: PASS/FAIL`. |
+| `framw<address>,<value>;` | Writes one byte (`0..255`) at FRAM address (`0..32767`). Example: `framw0,11;`. |
+| `framr<address>;` | Reads one byte at FRAM address and prints `FRAM[address] = value`. Example: `framr0;`. |
+| `framvset<integer>,<decimal>;` | Stores ideal detector voltage split across two addresses (`10=int`, `11=decimal`). Example: `framvset42,12;`. |
+| `framv;` | Reads ideal detector voltage from FRAM addresses `10` and `11` and prints `XX.YY V`. |
 | `t;` | Reads the MCP9808 temperature sensor and prints temperature in °C. |
 | `info;` | Prints device model and firmware version. |
 | `eh0;` | Sets error reporting to binary packet mode. |
@@ -90,3 +96,4 @@ All firmware commands are received over serial and must be terminated with a sem
 - Commands are parsed only when terminated by `;`.
 - Newline characters are ignored/reset by the parser and are not command terminators.
 - Numeric fields accept signed values where applicable (`x-100;`, `M10,-20,5;`, etc.).
+- FRAM memory layout details and reserved addresses are documented in `Docs/FRAM_MEMORY_MAP.md`.
