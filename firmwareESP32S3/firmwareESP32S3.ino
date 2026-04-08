@@ -305,7 +305,7 @@ static void sendPcnt32LimitsPacket();
 static void sendStepDelaysPacket();
 static void sendIntegrationTimePacket();
 static void printIntegrationTimeHuman();
-static float detReadAverageAndPrintHuman(uint8_t channel, uint32_t sampleCount, float *averageCountsOut = nullptr, bool printHuman = true);
+static float detReadAverageAndPrintHuman(uint8_t channel, uint32_t sampleCount, float *averageCountsOut = nullptr, bool printHuman = true, bool allowSdcAbort = false);
 
 static uint8_t ad5675_write_update(uint8_t ch, uint16_t code) {
   if (ch > 1) return 0;
@@ -823,7 +823,7 @@ static float detCountsToVolts(float counts) {
   return -((counts * 24.0f) / 65535.0f) + 12.0f;
 }
 
-static float detReadAverageAndPrintHuman(uint8_t channel, uint32_t sampleCount, float *averageCountsOut, bool printHuman, bool allowSdcAbort = false) {
+static float detReadAverageAndPrintHuman(uint8_t channel, uint32_t sampleCount, float *averageCountsOut, bool printHuman, bool allowSdcAbort) {
   if (channel > 1) {
     Serial.println("Error: channel must be 0 or 1.");
     return NAN;
