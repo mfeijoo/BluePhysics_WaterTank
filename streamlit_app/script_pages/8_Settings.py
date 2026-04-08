@@ -18,7 +18,7 @@ if "rank_value" not in st.session_state:
 if "integration_time_us" not in st.session_state:
     st.session_state.integration_time_us = int(st.session_state.app_config.get("integration_time_us", 700))
 if "regulate_target_v" not in st.session_state:
-    st.session_state.regulate_target_v = float(st.session_state.app_config.get("regulate_target_v", 42.32))
+    st.session_state.regulate_target_v = float(st.session_state.app_config.get("regulate_target_v", 42.105))
 if "dark_current_step" not in st.session_state:
     st.session_state.dark_current_step = int(st.session_state.app_config.get("dark_current_step", 10))
 
@@ -101,8 +101,8 @@ regulate_target_v = st.number_input(
     min_value=0.0,
     max_value=100.0,
     value=float(st.session_state.regulate_target_v),
-    step=0.01,
-    format="%.2f",
+    step=0.001,
+    format="%.3f",
 )
 dark_current_step = st.number_input(
     "Dark current step (sdcN, 1=slow/precise, 100=fast/coarse)",
