@@ -83,7 +83,7 @@ with cols[2]:
             df = df_rawdata.loc[:, ['idx', 'dt_s', 'ch0_V', 'ch1_V']]
             df.columns = ['Number', 'Time', 'ch0', 'ch1']
             current_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-            integration_value = rows[0]["dt_us"]
+            integration_value = df_rawdata["dt_us"].diff()
             st.session_state.integration_time = integration_value
 
             header = f"""Output Factor
