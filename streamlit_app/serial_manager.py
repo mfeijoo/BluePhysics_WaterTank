@@ -423,6 +423,75 @@ class SerialManager:
 
         return {"ok": True, "rank_value": rank, "lines": lines}
 
+    def read_integration_time_us(self, timeout_s: float = 2.0):
+        if not self.is_connected():
+            return {"ok": False, "error": "Not connected."}
+
+        with self.lock:
+            self.ser.reset_input_buffer()
+            self.ser.reset_output_buffer()
+            self.ser.write(b"itime;")
+            self.ser.flush()
+
+        lines = self._read_text_lines_until_idle(timeout_s=timeout_s, idle_s=0.2)
+        integration_time_us = None
+        pattern = re.compile(r"(-?\d+)\s*us", re.IGNORECASE)
+        for line in lines:
+            low = line.lower()
+            if "integration" not in low:
+                continue
+            match = pattern.search(line)
+            if match:
+                integration_time_us = int(match.group(1))
+                break
+
+        if integration_time_us is None:
+            return {"ok": False, "error": "Could not parse integration time from device response.", "lines": lines}
+
+        return {"ok": True, "integration_time_us": integration_time_us, "lines": lines}
+
+    def read_ps0_voltage(self, timeout_s: float = 2.0):
+        if not self.is_connected():
+            return {"ok": False, "error": "Not connected."}
+
+        with self.lock:
+            self.ser.reset_input_buffer()
+            self.ser.reset_output_buffer()
+            self.ser.write(b"ps0;")
+            self.ser.flush()
+
+        lines = self._read_text_lines_until_idle(timeout_s=timeout_s, idle_s=0.2)
+        voltage = None
+        pattern = re.compile(r"([-+]?\d+(?:\.\d+)?)\s*v", re.IGNORECASE)
+        for line in lines:
+            match = pattern.search(line)
+            if match:
+                voltage = float(match.group(1))
+                break
+
+        if voltage is None:
+            return {"ok": False, "error": "Could not parse PS0 voltage from device response.", "lines": lines}
+
+        return {"ok": True, "ps0_voltage_v": voltage, "lines": lines}
+
+    def read_device_settings_snapshot(self, timeout_s: float = 2.0):
+        if not self.is_connected():
+            return {"ok": False, "error": "Not connected."}
+
+        rank_res = self.read_capacitor_rank(timeout_s=timeout_s)
+        integration_res = self.read_integration_time_us(timeout_s=timeout_s)
+        ps0_res = self.read_ps0_voltage(timeout_s=timeout_s)
+
+        return {
+            "ok": bool(rank_res.get("ok") or integration_res.get("ok") or ps0_res.get("ok")),
+            "rank_value": rank_res.get("rank_value") if rank_res.get("ok") else None,
+            "integration_time_us": integration_res.get("integration_time_us") if integration_res.get("ok") else None,
+            "ps0_voltage_v": ps0_res.get("ps0_voltage_v") if ps0_res.get("ok") else None,
+            "rank_result": rank_res,
+            "integration_result": integration_res,
+            "ps0_result": ps0_res,
+        }
+
     def apply_capacitor_rank(self, rank_value: int, timeout_s: float = 2.0):
         if not self.is_connected():
             return {"ok": False, "error": "Not connected."}

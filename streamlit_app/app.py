@@ -28,6 +28,14 @@ if "dark_current_target_v" not in st.session_state:
     st.session_state.dark_current_target_v = float(st.session_state.app_config.get("dark_current_target_v", -9.5))
 if "dark_current_step" not in st.session_state:
     st.session_state.dark_current_step = int(st.session_state.app_config.get("dark_current_step", 10))
+if "device_settings_snapshot" not in st.session_state:
+    st.session_state.device_settings_snapshot = {
+        "rank_value": None,
+        "integration_time_us": None,
+        "ps0_voltage_v": None,
+        "last_refresh_ok": False,
+        "last_error": None,
+    }
 
 def render_home() -> None:
     st.title("Blue Physics – Control Suite")

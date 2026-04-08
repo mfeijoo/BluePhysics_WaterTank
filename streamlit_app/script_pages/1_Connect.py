@@ -34,10 +34,26 @@ with c1:
             }
         else:
             st.session_state.device_info = {"model": None, "firmware_version": None, "raw_lines": info.get("raw_lines", [])}
+
+        settings_snapshot = mgr.read_device_settings_snapshot()
+        st.session_state.device_settings_snapshot = {
+            "rank_value": settings_snapshot.get("rank_value"),
+            "integration_time_us": settings_snapshot.get("integration_time_us"),
+            "ps0_voltage_v": settings_snapshot.get("ps0_voltage_v"),
+            "last_refresh_ok": bool(settings_snapshot.get("ok")),
+            "last_error": None if settings_snapshot.get("ok") else "Could not read current settings from device.",
+        }
 with c2:
     if st.button("Disconnect", use_container_width=True, disabled=not mgr.is_connected()):
         mgr.disconnect()
         st.session_state.device_info = {"model": None, "firmware_version": None, "raw_lines": []}
+        st.session_state.device_settings_snapshot = {
+            "rank_value": None,
+            "integration_time_us": None,
+            "ps0_voltage_v": None,
+            "last_refresh_ok": False,
+            "last_error": None,
+        }
         st.warning("Disconnected")
 
 st.write("Connected:", mgr.is_connected())

@@ -23,6 +23,14 @@ if "dark_current_target_v" not in st.session_state:
     st.session_state.dark_current_target_v = float(st.session_state.app_config.get("dark_current_target_v", -9.5))
 if "dark_current_step" not in st.session_state:
     st.session_state.dark_current_step = int(st.session_state.app_config.get("dark_current_step", 10))
+if "device_settings_snapshot" not in st.session_state:
+    st.session_state.device_settings_snapshot = {
+        "rank_value": None,
+        "integration_time_us": None,
+        "ps0_voltage_v": None,
+        "last_refresh_ok": False,
+        "last_error": None,
+    }
 
 def persist_settings(
     acr: float | None = None,
@@ -55,6 +63,33 @@ def persist_settings(
     }
     save_config(st.session_state.app_config)
 
+def refresh_device_settings_snapshot(show_feedback: bool = True) -> None:
+    if not mgr.is_connected():
+        st.session_state.device_settings_snapshot = {
+            "rank_value": None,
+            "integration_time_us": None,
+            "ps0_voltage_v": None,
+            "last_refresh_ok": False,
+            "last_error": "Not connected.",
+        }
+        if show_feedback:
+            st.warning("Not connected.")
+        return
+
+    snapshot = mgr.read_device_settings_snapshot()
+    st.session_state.device_settings_snapshot = {
+        "rank_value": snapshot.get("rank_value"),
+        "integration_time_us": snapshot.get("integration_time_us"),
+        "ps0_voltage_v": snapshot.get("ps0_voltage_v"),
+        "last_refresh_ok": bool(snapshot.get("ok")),
+        "last_error": None if snapshot.get("ok") else "Could not read current settings from device.",
+    }
+    if show_feedback:
+        if snapshot.get("ok"):
+            st.success("Device settings refreshed.")
+        else:
+            st.warning("Could not read all settings from device. Available values were updated.")
+
 st.header("Serial connection")
 ports = list_ports()
 port_devices = [p.device for p in ports]
@@ -70,11 +105,46 @@ c1, c2 = st.columns(2)
 with c1:
     if st.button("Connect", use_container_width=True, disabled=(not port_devices) or mgr.is_connected()):
         mgr.connect(sel, baud)
+        refresh_device_settings_snapshot(show_feedback=False)
         st.success(f"Connected to {sel}")
 with c2:
     if st.button("Disconnect", use_container_width=True, disabled=not mgr.is_connected()):
         mgr.disconnect()
+        st.session_state.device_settings_snapshot = {
+            "rank_value": None,
+            "integration_time_us": None,
+            "ps0_voltage_v": None,
+            "last_refresh_ok": False,
+            "last_error": None,
+        }
         st.warning("Disconnected")
+
+st.divider()
+st.header("Current device values")
+rc1, rc2 = st.columns([2, 1])
+with rc1:
+    st.caption("Read from the connected device. These values do not overwrite your saved defaults.")
+with rc2:
+    if st.button("Refresh device values", use_container_width=True, disabled=not mgr.is_connected()):
+        refresh_device_settings_snapshot(show_feedback=True)
+
+snapshot = st.session_state.device_settings_snapshot
+if snapshot.get("last_error"):
+    st.warning(snapshot["last_error"])
+
+d1, d2, d3 = st.columns(3)
+d1.metric(
+    "Capacitor rank on device",
+    "Unknown" if snapshot.get("rank_value") is None else int(snapshot["rank_value"]),
+)
+d2.metric(
+    "Integration time on device (us)",
+    "Unknown" if snapshot.get("integration_time_us") is None else int(snapshot["integration_time_us"]),
+)
+d3.metric(
+    "PS0 voltage on device (V)",
+    "Unknown" if snapshot.get("ps0_voltage_v") is None else f"{float(snapshot['ps0_voltage_v']):.3f}",
+)
 
 st.divider()
 st.header("Measurement defaults")
@@ -132,10 +202,8 @@ with c3:
     if st.button("Read capacitor from device", use_container_width=True, disabled=not mgr.is_connected()):
         res = mgr.read_capacitor_rank()
         if res.get("ok"):
-            st.session_state.rank_value = int(res["rank_value"])
-            persist_settings(rank=st.session_state.rank_value)
-            rank_value = st.session_state.rank_value
-            st.success(f"Device capacitor state read: rank {st.session_state.rank_value}")
+            rank_value = int(res["rank_value"])
+            st.success(f"Device capacitor state read: rank {rank_value}")
         else:
             st.error(res.get("error", "Failed to read capacitor state."))
 
@@ -145,6 +213,9 @@ with c4:
         if res.get("ok"):
             st.session_state.rank_value = int(res["rank_value"])
             persist_settings(rank=st.session_state.rank_value)
+            st.session_state.device_settings_snapshot["rank_value"] = int(res["rank_value"])
+            st.session_state.device_settings_snapshot["last_refresh_ok"] = True
+            st.session_state.device_settings_snapshot["last_error"] = None
             st.success(f"Capacitor changed on device and verified as rank {st.session_state.rank_value}")
         else:
             st.error(res.get("error", "Failed to apply capacitor rank."))
@@ -154,6 +225,9 @@ if st.button("Apply integration time to device", use_container_width=True, disab
     if res.get("ok"):
         st.session_state.integration_time_us = int(res["integration_time_us"])
         persist_settings(integration_time_us=st.session_state.integration_time_us)
+        st.session_state.device_settings_snapshot["integration_time_us"] = int(res["integration_time_us"])
+        st.session_state.device_settings_snapshot["last_refresh_ok"] = True
+        st.session_state.device_settings_snapshot["last_error"] = None
         st.success(f"Integration time changed on device to {st.session_state.integration_time_us} us.")
     else:
         st.error(res.get("error", "Failed to apply integration time."))
