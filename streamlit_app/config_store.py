@@ -6,6 +6,7 @@ DEFAULT_CONFIG = {
     "rank_value": 1,
     "integration_time_us": 700,
     "regulate_target_v": 42.32,
+    "dark_current_target_v": -9.5,
     "dark_current_step": 10,
 }
 

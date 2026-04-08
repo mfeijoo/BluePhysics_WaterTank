@@ -24,6 +24,8 @@ if "integration_time_us" not in st.session_state:
 
 if "regulate_target_v" not in st.session_state:
     st.session_state.regulate_target_v = float(st.session_state.app_config.get("regulate_target_v", 42.32))
+if "dark_current_target_v" not in st.session_state:
+    st.session_state.dark_current_target_v = float(st.session_state.app_config.get("dark_current_target_v", -9.5))
 if "dark_current_step" not in st.session_state:
     st.session_state.dark_current_step = int(st.session_state.app_config.get("dark_current_step", 10))
 

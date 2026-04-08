@@ -19,6 +19,8 @@ if "integration_time_us" not in st.session_state:
     st.session_state.integration_time_us = int(st.session_state.app_config.get("integration_time_us", 700))
 if "regulate_target_v" not in st.session_state:
     st.session_state.regulate_target_v = float(st.session_state.app_config.get("regulate_target_v", 42.105))
+if "dark_current_target_v" not in st.session_state:
+    st.session_state.dark_current_target_v = float(st.session_state.app_config.get("dark_current_target_v", -9.5))
 if "dark_current_step" not in st.session_state:
     st.session_state.dark_current_step = int(st.session_state.app_config.get("dark_current_step", 10))
 
@@ -27,6 +29,7 @@ def persist_settings(
     rank: int | None = None,
     integration_time_us: int | None = None,
     target_v: float | None = None,
+    dark_current_target_v: float | None = None,
     dark_current_step: int | None = None,
 ) -> None:
     if acr is not None:
@@ -37,6 +40,8 @@ def persist_settings(
         st.session_state.integration_time_us = int(integration_time_us)
     if target_v is not None:
         st.session_state.regulate_target_v = float(target_v)
+    if dark_current_target_v is not None:
+        st.session_state.dark_current_target_v = float(dark_current_target_v)
     if dark_current_step is not None:
         st.session_state.dark_current_step = int(dark_current_step)
 
@@ -45,6 +50,7 @@ def persist_settings(
         "rank_value": int(st.session_state.rank_value),
         "integration_time_us": int(st.session_state.integration_time_us),
         "regulate_target_v": float(st.session_state.regulate_target_v),
+        "dark_current_target_v": float(st.session_state.dark_current_target_v),
         "dark_current_step": int(st.session_state.dark_current_step),
     }
     save_config(st.session_state.app_config)
@@ -104,8 +110,16 @@ regulate_target_v = st.number_input(
     step=0.001,
     format="%.3f",
 )
+dark_current_target_v = st.number_input(
+    "Dark current target voltage (V) for sdcv command",
+    min_value=-10.5,
+    max_value=0.0,
+    value=float(st.session_state.dark_current_target_v),
+    step=0.1,
+    format="%.3f",
+)
 dark_current_step = st.number_input(
-    "Dark current step (sdcN, 1=slow/precise, 100=fast/coarse)",
+    "Dark current step (sdcv...,N | 1=slow/precise, 100=fast/coarse)",
     min_value=1,
     max_value=100,
     value=int(st.session_state.dark_current_step),
@@ -186,7 +200,7 @@ if st.button("Apply dark current to device", use_container_width=True, disabled=
     live_status = st.empty()
     progress_bar = st.progress(0.0, text="Running dark current routine...")
 
-    start_result = mgr.start_set_dark_current(int(dark_current_step), timeout_s=240.0)
+    start_result = mgr.start_set_dark_current(float(dark_current_target_v), int(dark_current_step), timeout_s=240.0)
     if not start_result.get("ok"):
         progress_bar.progress(0.0, text="Dark current routine failed")
         st.error(start_result.get("error", "Failed to start dark current routine."))
@@ -200,7 +214,7 @@ if st.button("Apply dark current to device", use_container_width=True, disabled=
                     float(poll.get("progress_ratio", 0.0)),
                     text=(
                         f"Channel {latest['channel']} | active {latest['active_v']:.3f} V"
-                        f" / target {latest['target_v']:.1f} V"
+                        f" / target {latest['target_v']:.3f} V"
                     ),
                 )
                 live_status.write(
@@ -233,6 +247,7 @@ if st.button("Save settings", use_container_width=True):
         rank=int(rank_value),
         integration_time_us=int(integration_time_us),
         target_v=float(regulate_target_v),
+        dark_current_target_v=float(dark_current_target_v),
         dark_current_step=int(dark_current_step),
     )
     st.success("Settings saved. These values will be used as defaults on next app launch.")
