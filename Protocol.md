@@ -23,7 +23,6 @@ ASCII command string terminated by semicolon:
 - `itime;`
 - `info;`
 - `stepdelays800,800;`
-- `b;`
 - `i700;`
 - `m2000;`
 - `readbytes100;`
@@ -267,19 +266,6 @@ N * [<uint32 dt_us><uint16 ch0><uint16 ch1>]
 
 - End coordinates are encoder counts (logical Z).
 - Then follows the same sample payload format used by `AB CD` packets.
-
----
-
-## 6) Coordinate compatibility packet (`b;`)
-
-Legacy compact coordinate packet:
-
-```text
-AA 55 <int32 x><int32 y><int32 z>
-```
-
-- No `<type>` byte in this legacy variant.
-- Prefer `p;` with typed packet `AA 55 20 ...` for robust parsing.
 
 ---
 
