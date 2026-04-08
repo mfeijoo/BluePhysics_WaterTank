@@ -104,6 +104,8 @@ Integration time: {integration_value} us
                 df.to_csv(f, index=False)
             st.toast("File downloaded successfully!")
             st.session_state['file_to_analyze'] = file_path
+            time.sleep(0.5)
+            st.rerun()
 
 
 
