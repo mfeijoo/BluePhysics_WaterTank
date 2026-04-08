@@ -14,7 +14,7 @@
 
 Adafruit_MCP9808 tempsensor = Adafruit_MCP9808();
 Adafruit_FRAM_I2C fram = Adafruit_FRAM_I2C();
-//ADS1115_WE adc(0x48);
+//ADS1115_WE adc(0x48);F
 ADS1115 ADS(0x48);
 
 static const uint8_t FRAM_MARKER_ADDR0 = 0xA5;
@@ -303,6 +303,8 @@ static double stepsToPcnt32Delta(int32_t steps) {
 static void sendErr(uint8_t cmd_id, uint8_t err_code);
 static void sendPcnt32LimitsPacket();
 static void sendStepDelaysPacket();
+static void sendIntegrationTimePacket();
+static void printIntegrationTimeHuman();
 static float detReadAverageAndPrintHuman(uint8_t channel, uint32_t sampleCount, float *averageCountsOut = nullptr, bool printHuman = true);
 
 static uint8_t ad5675_write_update(uint8_t ch, uint16_t code) {
@@ -658,6 +660,12 @@ static void sendStepDelaysPacket() {
   Serial.write((uint8_t*)&gap, 4);
 }
 
+static void sendIntegrationTimePacket() {
+  uint32_t integ = (uint32_t)integraltimemicros;
+  sendPktHeader(0x25);
+  Serial.write((uint8_t*)&integ, 4);
+}
+
 static void printPcnt32ValuesHuman() {
   int32_t x = pcntRead32(pcX);
   int32_t y = yCoord();
@@ -695,6 +703,11 @@ static void printStepDelaysHuman() {
   Serial.println(STEP_PULSE_US);
   Serial.print("STEP_GAP_US: ");
   Serial.println(STEP_GAP_US);
+}
+
+static void printIntegrationTimeHuman() {
+  Serial.print("Integration time (us): ");
+  Serial.println((uint32_t)integraltimemicros);
 }
 
 static void printDeviceInfoHuman() {
@@ -1032,14 +1045,14 @@ static void detReadAndSendBytesService() {
   now = micros();
   det_bytes_last_us = now;
 
-  //digitalWrite(SERIAL_TIMING_PIN, HIGH);
+  digitalWrite(SERIAL_TIMING_PIN, HIGH);
   sendPktHeader(PKT_STREAM_SAMPLE);
   Serial.write((uint8_t*)&det_bytes_idx, 4);
   uint32_t dt = (uint32_t)(now - det_bytes_t0_us);
   Serial.write((uint8_t*)&dt, 4);
   Serial.write((uint8_t*)&det_ch0, 2);
   Serial.write((uint8_t*)&det_ch1, 2);
-  //digitalWrite(SERIAL_TIMING_PIN, LOW);
+  digitalWrite(SERIAL_TIMING_PIN, LOW);
   det_bytes_idx++;
 }
 
@@ -1480,6 +1493,12 @@ void loop() {
     return;
   }
 
+  //-----print current integration time in human-readable text
+  if (strcmp(cmd, "itime") == 0) {
+    printIntegrationTimeHuman();
+    return;
+  }
+
   //-----pcnt32 axis limits in binary packet
   if (cmd[0] == 'l' && cmd[1] == 0) {
     sendAck('l');
@@ -1491,6 +1510,13 @@ void loop() {
   if (cmd[0] == 'd' && cmd[1] == 0) {
     sendAck('d');
     sendStepDelaysPacket();
+    return;
+  }
+
+  //-----integration time in binary packet
+  if (strcmp(cmd, "it") == 0) {
+    sendAck('I');
+    sendIntegrationTimePacket();
     return;
   }
 

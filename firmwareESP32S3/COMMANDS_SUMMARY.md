@@ -37,6 +37,8 @@ All firmware commands are received over serial and must be terminated with a sem
 | Command | What it does |
 |---|---|
 | `i<us>;` | Sets detector integration time in microseconds (clamped internally to 50..50000 µs). |
+| `it;` | Sends current detector integration time as a binary packet (`0x25`) with a `uint32` payload in microseconds. |
+| `itime;` | Prints current detector integration time in microseconds in human-readable text. |
 | `cint;` | Selects internal capacitor (`CAP_SEL_0` LOW) and prints capacitor state. |
 | `cext;` | Selects external capacitor (`CAP_SEL_0` HIGH) and prints capacitor state. |
 | `cstate;` | Prints current capacitor selection state. |
@@ -46,6 +48,9 @@ All firmware commands are received over serial and must be terminated with a sem
 | `start;` | Starts continuous human-readable detector stream (`idx, dt_us, ch0, ch1`). |
 | `stop;` | Stops continuous human-readable detector stream. |
 | `rs;` | Starts continuous binary detector stream. |
+| `re;` | Stops continuous binary detector stream. |
+| `pin21H;` | Forces GPIO21 (`SERIAL_TIMING_PIN`) to HIGH for debug/oscilloscope checks. |
+| `pin21L;` | Forces GPIO21 (`SERIAL_TIMING_PIN`) to LOW for debug/oscilloscope checks. |
 | `rsp[<threshold>[,<ACR>,<CF>]];` | Starts pulse-count mode on CH0 with optional threshold in volts and optional dose factors (`ACR`, `CF`). Defaults: `threshold=-9.0`, `ACR=1.0`, `CF=1.0`. During `rsp`, detector samples are streamed in the **same binary packet format as `rs;`**. Examples: `rsp;`, `rsp-9.2;`, `rsp-9.2,1.0,1.0;`, `rsp,1.0,1.0;`. |
 | `re;` | Stops continuous binary detector stream, or if `rsp...;` is active, stops pulse-count mode with the same binary stop packet format as `rs;` and then prints totals (pulses, coincide pulses, accumulated dose) in human-readable text. |
 | `rts;` | Starts continuous binary detector stream with temperature (detector + MCP9808 raw temp bytes). |
