@@ -20,6 +20,7 @@ ADS1115 ADS(0x48);
 static const int I2C_SDA_PIN = 8;
 static const int I2C_SCL_PIN = 9;
 static const uint32_t I2C_FREQ_HZ = 100000;
+static const uint8_t FRAM_INIT_RETRIES = 3;
 
 static bool fram_ready = false;
 static const uint16_t FRAM_MAX_ADDR = 32767;
@@ -595,9 +596,21 @@ static void sendErr(uint8_t cmd_id, uint8_t err_code) {
   Serial.write(err_code);
 }
 
+static bool initFramOnWire() {
+  Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN, I2C_FREQ_HZ);
+  delay(2);
+
+  for (uint8_t attempt = 0; attempt < FRAM_INIT_RETRIES; ++attempt) {
+    if (fram.begin(MB85RC_DEFAULT_ADDRESS, &Wire)) return true;
+    delay(5);
+  }
+
+  return false;
+}
+
 static bool ensureFramReady() {
   if (fram_ready) return true;
-  fram_ready = fram.begin(MB85RC_DEFAULT_ADDRESS, &Wire);
+  fram_ready = initFramOnWire();
   return fram_ready;
 }
 
@@ -698,7 +711,7 @@ static void runFramCheckHuman() {
 }
 
 static FramStartupStatus detectFramStatus() {
-  fram_ready = fram.begin(MB85RC_DEFAULT_ADDRESS, &Wire);
+  fram_ready = initFramOnWire();
   if (!fram_ready) return FRAM_STATUS_MISSING;
 
   uint8_t marker0 = fram.read(FRAM_ADDR_MAGIC0);
