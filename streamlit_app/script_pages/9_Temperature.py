@@ -1,11 +1,9 @@
 import streamlit as st
 
-from protocol import mcp9808_raw_to_celsius
-
 
 mgr = st.session_state.mgr
 st.title("9) Temperature")
-st.caption("Read MCP9808 temperature using command t; and decode with MCP9808 format (Adafruit-compatible)")
+st.caption("Read temperature using command t; (text response from firmware).")
 
 connected = mgr.is_connected()
 
@@ -18,11 +16,12 @@ if "temp_result" in st.session_state:
     if not result.get("ok"):
         st.error(result.get("error", "Unknown error"))
     else:
-        raw = int(result["raw"])
-        reg_value = raw & 0xFFFF
-        temp_c = mcp9808_raw_to_celsius(reg_value)
+        temp_c = float(result["temp_c"])
         st.success(f"Current temperature: {temp_c:.4f} °C")
-        st.write("Raw register value (uint16):", reg_value)
+        lines = result.get("lines") or []
+        if lines:
+            with st.expander("Raw response lines (diagnostics)"):
+                st.code("\n".join(lines))
 
 if not connected:
     st.info("Connect on page 1 before reading temperature.")

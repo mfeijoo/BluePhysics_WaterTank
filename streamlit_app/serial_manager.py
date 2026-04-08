@@ -1,5 +1,5 @@
 # serial_manager.py
-import time, threading, queue, struct, re
+import time, threading, re
 import serial
 import serial.tools.list_ports
 from protocol import (
@@ -287,13 +287,12 @@ class SerialManager:
         finally:
             pass
 
-    def read_temperature_bytes(self, timeout_s: float = 2.0):
+    def read_temperature_bytes(self, timeout_s: float = 2.0, idle_s: float = 0.25):
         """
-        Request temperature bytes using t; and parse firmware framing:
-          ACK : AA 55 10 <cmd_id>
-          TEMP: AA 55 <u16 raw>
+        Request temperature text using t; and parse Celsius from returned lines.
+        Expected primary format: a line ending with 'C' that contains a numeric value.
+        Fallback: first float found in any returned line.
         """
-
         if not self.is_connected():
             return {"ok": False, "error": "Not connected."}
 
@@ -302,52 +301,35 @@ class SerialManager:
             self.ser.write(b"t;")
             self.ser.flush()
 
-        t0 = time.time()
-        buf = bytearray()
+        lines = self._read_text_lines_until_idle(timeout_s=timeout_s, idle_s=idle_s)
 
-        while time.time() - t0 < timeout_s:
-            with self.lock:
-                n = self.ser.in_waiting
-                if n:
-                    buf += self.ser.read(n)
+        float_rgx = re.compile(r"[-+]?\d+(?:\.\d+)?")
 
-            # Parse as many complete frames as are already in buf
-            while True:
-                j = buf.find(b"\xAA\x55")
-                if j < 0:
-                    # Keep only possible partial header
-                    if len(buf) > 1:
-                        buf = bytearray([buf[-1]]) if buf[-1] == 0xAA else bytearray()
-                    break
+        for line in lines:
+            if not line.endswith("C"):
+                continue
+            m = float_rgx.search(line)
+            if m:
+                return {
+                    "ok": True,
+                    "temp_c": float(m.group(0)),
+                    "lines": lines,
+                }
 
-                if j > 0:
-                    del buf[:j]
+        for line in lines:
+            m = float_rgx.search(line)
+            if m:
+                return {
+                    "ok": True,
+                    "temp_c": float(m.group(0)),
+                    "lines": lines,
+                }
 
-                # Need at least 4 bytes for either ACK or TEMP frame
-                if len(buf) < 4:
-                    break
-
-                # ACK frame: AA 55 10 <cmd_id>
-                if buf[2] == 0x10:
-                    cmd_id = buf[3]
-                    del buf[:4]
-
-                    # Optional sanity check
-                    if cmd_id != ord('t'):
-                        continue
-
-                    # Important: continue parsing immediately, because
-                    # the temp frame may already be in the buffer
-                    continue
-
-                # Temperature frame: AA 55 <u16 raw>
-                raw, = struct.unpack_from("<H", buf, 2)
-                del buf[:4]
-                return {"ok": True, "raw": int(raw)}
-
-            time.sleep(0.005)
-
-        return {"ok": False, "error": "Timeout waiting for temperature bytes."}
+        return {
+            "ok": False,
+            "error": "Could not parse temperature from device response.",
+            "lines": lines,
+        }
 
 
     def _wait_for_ack_or_err(self, timeout_s: float = 3.0):
