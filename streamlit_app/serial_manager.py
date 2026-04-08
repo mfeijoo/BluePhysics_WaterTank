@@ -46,6 +46,7 @@ class SerialManager:
         self._dark_current_text_buf = ""
         self._dark_current_lines = []
         self._dark_current_progress = []
+        self._dark_current_target_v = -10.0
         self._dark_current_started_at = None
         self._dark_current_timeout_s = 0.0
 
@@ -604,14 +605,18 @@ class SerialManager:
             "channel": int(m.group(1)),
             "code_value": int(m.group(2)),
             "active_v": float(m.group(3)),
-            "target_v": -10.0,
+            "target_v": float(self._dark_current_target_v),
         }
 
-    def start_set_dark_current(self, step_value: int, timeout_s: float = 180.0):
+    def start_set_dark_current(self, target_v: float, step_value: int, timeout_s: float = 180.0):
         if not self.is_connected():
             return {"ok": False, "error": "Not connected."}
         if self.dark_current_active:
             return {"ok": False, "error": "Dark current routine already active."}
+
+        target = float(target_v)
+        if target < -10.5 or target > 0.0:
+            return {"ok": False, "error": "Dark current target voltage must be in range -10.5..0.0 V."}
 
         step = int(step_value)
         if step < 1 or step > 100:
@@ -621,13 +626,14 @@ class SerialManager:
         self._dark_current_text_buf = ""
         self._dark_current_lines = []
         self._dark_current_progress = []
+        self._dark_current_target_v = float(target)
         self._dark_current_started_at = time.time()
         self._dark_current_timeout_s = float(timeout_s)
 
         with self.lock:
             self.ser.reset_input_buffer()
             self.ser.reset_output_buffer()
-            self.ser.write(f"sdc{step};".encode("ascii"))
+            self.ser.write(f"sdcv{target:.3f},{step};".encode("ascii"))
             self.ser.flush()
 
         return {"ok": True}
@@ -680,7 +686,10 @@ class SerialManager:
         if self._dark_current_progress:
             latest = self._dark_current_progress[-1]
             channel_ratio = max(0.0, min(1.0, latest["channel"] / 2.0))
-            voltage_progress = max(0.0, min(1.0, (-latest["active_v"]) / 10.0))
+            voltage_progress = max(
+                0.0,
+                min(1.0, (-latest["active_v"]) / max(1e-9, abs(float(self._dark_current_target_v)))),
+            )
             progress_ratio = max(0.0, min(1.0, channel_ratio + (voltage_progress / 2.0)))
 
         if terminal_success:
