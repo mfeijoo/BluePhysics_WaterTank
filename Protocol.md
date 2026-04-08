@@ -32,6 +32,7 @@ ASCII command string terminated by semicolon:
 - `sdc;`
 - `sdc10;`
 - `sdc20;`
+- `sdcstop;`
 - `M10,25.5,-3;`
 - `S10,25.5,-3;`
 - `Q10,25.5,-3,2000;`

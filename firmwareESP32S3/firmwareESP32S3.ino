@@ -531,6 +531,7 @@ static const uint8_t PKT_STREAM_STOP = 0x34;
 static const uint8_t PKT_TEMP_STREAM_START = 0x35;
 static const uint8_t PKT_TEMP_STREAM_SAMPLE = 0x36;
 static const uint8_t PKT_TEMP_STREAM_STOP = 0x37;
+static bool sdc_abort_requested = false;
 
 static bool readCmd(char *buf, size_t maxlen) {
   static size_t idx = 0;
@@ -556,6 +557,38 @@ static bool readCmd(char *buf, size_t maxlen) {
     else idx = 0; // overflow -> reset
   }
   return false;
+}
+
+static bool pollSdcAbortCommand() {
+  static char sdcAbortBuf[24];
+  static size_t sdcAbortIdx = 0;
+
+  while (Serial.available()) {
+    char c = (char)Serial.read();
+
+    if (c == '\r' || c == '\n') {
+      if (sdcAbortIdx == 0) continue;
+      sdcAbortIdx = 0;
+      continue;
+    }
+
+    if (c == ';') {
+      sdcAbortBuf[sdcAbortIdx] = 0;
+      sdcAbortIdx = 0;
+
+      if (strcmp(sdcAbortBuf, "sdcstop") == 0) {
+        sdc_abort_requested = true;
+        Serial.println("sdc interrupt requested (sdcstop;).");
+        return true;
+      }
+      continue;
+    }
+
+    if (sdcAbortIdx < sizeof(sdcAbortBuf) - 1) sdcAbortBuf[sdcAbortIdx++] = c;
+    else sdcAbortIdx = 0;
+  }
+
+  return sdc_abort_requested;
 }
 
 static void sendPktHeader(uint8_t type) {
@@ -790,7 +823,7 @@ static float detCountsToVolts(float counts) {
   return -((counts * 24.0f) / 65535.0f) + 12.0f;
 }
 
-static float detReadAverageAndPrintHuman(uint8_t channel, uint32_t sampleCount, float *averageCountsOut, bool printHuman) {
+static float detReadAverageAndPrintHuman(uint8_t channel, uint32_t sampleCount, float *averageCountsOut, bool printHuman, bool allowSdcAbort = false) {
   if (channel > 1) {
     Serial.println("Error: channel must be 0 or 1.");
     return NAN;
@@ -814,6 +847,11 @@ static float detReadAverageAndPrintHuman(uint8_t channel, uint32_t sampleCount, 
   uint32_t starttime = micros();
   uint32_t i = 0;
   while (i < sampleCount) {
+    if (allowSdcAbort && pollSdcAbortCommand()) {
+      Serial.println("sdc interrupted during detector averaging.");
+      return NAN;
+    }
+
     if ((uint32_t)(micros() - starttime) >= (uint32_t)integraltimemicros) {
       detReadOnce();
       starttime = micros();
@@ -854,10 +892,16 @@ static bool setDarkCurrentChannelToTarget(uint8_t ch, float targetVolts, uint32_
   }
 
   while (true) {
+    if (pollSdcAbortCommand()) {
+      Serial.print("sdc interrupted while tuning channel ");
+      Serial.println((int)ch);
+      return false;
+    }
+
     float ch0Counts = 0.0f;
     float ch1Counts = 0.0f;
-    float ch0Volts = detReadAverageAndPrintHuman(0, sampleCount, &ch0Counts, false);
-    float ch1Volts = detReadAverageAndPrintHuman(1, sampleCount, &ch1Counts, false);
+    float ch0Volts = detReadAverageAndPrintHuman(0, sampleCount, &ch0Counts, false, true);
+    float ch1Volts = detReadAverageAndPrintHuman(1, sampleCount, &ch1Counts, false, true);
     if (isnan(ch0Volts) || isnan(ch1Volts)) return false;
 
     float activeVolts = (ch == 0) ? ch0Volts : ch1Volts;
@@ -897,6 +941,7 @@ static bool setDarkCurrentChannelToTarget(uint8_t ch, float targetVolts, uint32_
 }
 
 static bool setDarkCurrentToMinusTenVolts(uint16_t codeStep) {
+  sdc_abort_requested = false;
   Serial.print("Set dark current routine: target <= -10.0 V, samples=100, codeStep=");
   Serial.println((int)codeStep);
 
@@ -908,6 +953,7 @@ static bool setDarkCurrentToMinusTenVolts(uint16_t codeStep) {
 }
 
 static bool setDarkCurrentToTargetVoltage(float targetVolts, uint16_t codeStep) {
+  sdc_abort_requested = false;
   Serial.print("Set dark current routine: target <= ");
   Serial.print(targetVolts, 4);
   Serial.print(" V, samples=100, codeStep=");
@@ -1581,6 +1627,13 @@ void loop() {
     } else {
       sendAck('h');
     }
+    return;
+  }
+
+  //-----interrupt ongoing dark-current auto setup (handled during sdc/sdcv loops)
+  if (strcmp(cmd, "sdcstop") == 0) {
+    sdc_abort_requested = true;
+    Serial.println("sdc interrupt requested.");
     return;
   }
 
