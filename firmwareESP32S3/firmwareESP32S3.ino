@@ -537,6 +537,39 @@ static const uint8_t PKT_STREAM_STOP = 0x34;
 static const uint8_t PKT_TEMP_STREAM_START = 0x35;
 static const uint8_t PKT_TEMP_STREAM_SAMPLE = 0x36;
 static const uint8_t PKT_TEMP_STREAM_STOP = 0x37;
+static bool sdc_routine_active = false;
+static bool sdc_cancel_requested = false;
+
+static bool consumeSdcStopCommandIfPresent() {
+  static char cmd[24];
+  static size_t idx = 0;
+
+  while (Serial.available()) {
+    char c = (char)Serial.read();
+
+    if (c == '\r' || c == '\n') {
+      if (idx == 0) continue;
+      idx = 0;
+      continue;
+    }
+
+    if (c == ';') {
+      cmd[idx] = 0;
+      idx = 0;
+      if (strcmp(cmd, "sdcstop") == 0) {
+        sdc_cancel_requested = true;
+        Serial.println("sdcstop received: stopping sdc/sdcv routine.");
+        return true;
+      }
+      continue;
+    }
+
+    if (idx < sizeof(cmd) - 1) cmd[idx++] = c;
+    else idx = 0;
+  }
+
+  return sdc_cancel_requested;
+}
 
 static bool readCmd(char *buf, size_t maxlen) {
   static size_t idx = 0;
@@ -840,6 +873,9 @@ static float detReadAverageAndPrintHuman(uint8_t channel, uint32_t sampleCount, 
   uint32_t starttime = micros();
   uint32_t i = 0;
   while (i < sampleCount) {
+    if (sdc_routine_active && consumeSdcStopCommandIfPresent()) {
+      return NAN;
+    }
     if ((uint32_t)(micros() - starttime) >= (uint32_t)integraltimemicros) {
       detReadOnce();
       starttime = micros();
@@ -880,6 +916,8 @@ static bool setDarkCurrentChannelToTarget(uint8_t ch, float targetVolts, uint32_
   }
 
   while (true) {
+    if (consumeSdcStopCommandIfPresent()) return false;
+
     float ch0Counts = 0.0f;
     float ch1Counts = 0.0f;
     float ch0Volts = detReadAverageAndPrintHuman(0, sampleCount, &ch0Counts, false);
@@ -923,25 +961,43 @@ static bool setDarkCurrentChannelToTarget(uint8_t ch, float targetVolts, uint32_
 }
 
 static bool setDarkCurrentToZeroVolts(uint16_t codeStep) {
+  sdc_routine_active = true;
+  sdc_cancel_requested = false;
   Serial.print("Set dark current routine: target <= 0.0 V, samples=100, codeStep=");
   Serial.println((int)codeStep);
 
-  if (!setDarkCurrentChannelToTarget(0, 0.0f, 100, codeStep)) return false;
-  if (!setDarkCurrentChannelToTarget(1, 0.0f, 100, codeStep)) return false;
+  if (!setDarkCurrentChannelToTarget(0, 0.0f, 100, codeStep)) {
+    sdc_routine_active = false;
+    return false;
+  }
+  if (!setDarkCurrentChannelToTarget(1, 0.0f, 100, codeStep)) {
+    sdc_routine_active = false;
+    return false;
+  }
 
+  sdc_routine_active = false;
   Serial.println("Set dark current routine completed.");
   return true;
 }
 
 static bool setDarkCurrentToTargetVoltage(float targetVolts, uint16_t codeStep) {
+  sdc_routine_active = true;
+  sdc_cancel_requested = false;
   Serial.print("Set dark current routine: target <= ");
   Serial.print(targetVolts, 4);
   Serial.print(" V, samples=100, codeStep=");
   Serial.println((int)codeStep);
 
-  if (!setDarkCurrentChannelToTarget(0, targetVolts, 100, codeStep)) return false;
-  if (!setDarkCurrentChannelToTarget(1, targetVolts, 100, codeStep)) return false;
+  if (!setDarkCurrentChannelToTarget(0, targetVolts, 100, codeStep)) {
+    sdc_routine_active = false;
+    return false;
+  }
+  if (!setDarkCurrentChannelToTarget(1, targetVolts, 100, codeStep)) {
+    sdc_routine_active = false;
+    return false;
+  }
 
+  sdc_routine_active = false;
   Serial.println("Set dark current routine completed.");
   return true;
 }
@@ -1593,7 +1649,11 @@ void loop() {
     }
 
     if (!setDarkCurrentToZeroVolts(codeStep)) {
+      if (sdc_cancel_requested) {
+        sendErr('s', 0x08);
+      } else {
       sendErr('s', 0x03);
+      }
       return;
     }
 
@@ -1661,11 +1721,26 @@ void loop() {
     }
 
     if (!setDarkCurrentToTargetVoltage(targetVolts, codeStep)) {
-      sendErr('s', 0x06);
+      if (sdc_cancel_requested) {
+        sendErr('s', 0x08);
+      } else {
+        sendErr('s', 0x06);
+      }
       return;
     }
 
     sendAck('s');
+    return;
+  }
+
+  //-----stop active dark-current auto-routine: sdcstop;
+  if (strcmp(cmd, "sdcstop") == 0) {
+    if (sdc_routine_active) {
+      sdc_cancel_requested = true;
+      Serial.println("sdcstop accepted. Current sdc/sdcv routine will stop.");
+    } else {
+      Serial.println("sdcstop received, but no sdc/sdcv routine is active.");
+    }
     return;
   }
 
