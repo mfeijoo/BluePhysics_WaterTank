@@ -325,6 +325,11 @@ static uint8_t ad5675_write_update(uint8_t ch, uint16_t code) {
   return (tx_status == 0) ? 1 : 0;
 }
 
+static bool i2cDevicePresent(uint8_t addr) {
+  Wire.beginTransmission(addr);
+  return (Wire.endTransmission() == 0);
+}
+
 static bool parseLimitValue(char *&p, int32_t &out, bool requireComma) {
   char *end = nullptr;
   long v = strtol(p, &end, 10);
@@ -1441,14 +1446,31 @@ void loop() {
   if (strcmp(cmd, "fram") == 0) {
     // Ensure FRAM probe uses the same explicit I2C bus config as setup.
     Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN, I2C_CLOCK_HZ);
-    fram_detected = fram.begin(MB85RC_DEFAULT_ADDRESS, &Wire);
+    const uint8_t fram_addr0 = MB85RC_DEFAULT_ADDRESS;      // usually 0x50
+    const uint8_t fram_addr1 = MB85RC_DEFAULT_ADDRESS + 1;  // usually 0x51
+
+    bool ack0 = i2cDevicePresent(fram_addr0);
+    bool ack1 = i2cDevicePresent(fram_addr1);
+    uint8_t selected_addr = 0;
+    fram_detected = false;
+
+    if (ack0 && fram.begin(fram_addr0, &Wire)) {
+      fram_detected = true;
+      selected_addr = fram_addr0;
+    } else if (ack1 && fram.begin(fram_addr1, &Wire)) {
+      fram_detected = true;
+      selected_addr = fram_addr1;
+    }
 
     uint16_t manufacturerID = 0;
     uint16_t productID = 0;
     if (fram_detected) {
       fram.getDeviceID(&manufacturerID, &productID);
-      Serial.printf("FRAM detected. Manufacturer ID: 0x%04X, Product ID: 0x%04X\n",
-                    manufacturerID, productID);
+      Serial.printf("FRAM detected at 0x%02X. Manufacturer ID: 0x%04X, Product ID: 0x%04X\n",
+                    selected_addr, manufacturerID, productID);
+    } else if (ack0 || ack1) {
+      Serial.printf("FRAM ACK detected on I2C (0x%02X=%d, 0x%02X=%d), but FRAM library init failed.\n",
+                    fram_addr0, ack0 ? 1 : 0, fram_addr1, ack1 ? 1 : 0);
     } else {
       Serial.println("FRAM not detected.");
     }
