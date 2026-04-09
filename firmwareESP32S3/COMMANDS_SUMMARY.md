@@ -7,6 +7,7 @@ All firmware commands are received over serial and must be terminated with a sem
 | Command | What it does |
 |---|---|
 | `t;` | Reads the MCP9808 temperature sensor and prints temperature in °C. |
+| `fram;` | Checks if the FRAM I2C chip is present at the default MB85RC address and prints detection status plus device IDs when found. |
 | `info;` | Prints device model and firmware version. |
 | `eh0;` | Sets error reporting to binary packet mode. |
 | `eh1;` | Sets error reporting to human-readable serial text mode. |
