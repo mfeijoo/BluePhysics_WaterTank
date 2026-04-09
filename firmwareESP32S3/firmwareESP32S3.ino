@@ -560,35 +560,20 @@ static bool readCmd(char *buf, size_t maxlen) {
 }
 
 static bool pollSdcAbortCommand() {
-  static char sdcAbortBuf[24];
-  static size_t sdcAbortIdx = 0;
+  if (sdc_abort_requested) return true;
 
-  while (Serial.available()) {
-    char c = (char)Serial.read();
+  char cmd[96];
+  if (!readCmd(cmd, sizeof(cmd))) return false;
 
-    if (c == '\r' || c == '\n') {
-      if (sdcAbortIdx == 0) continue;
-      sdcAbortIdx = 0;
-      continue;
-    }
-
-    if (c == ';') {
-      sdcAbortBuf[sdcAbortIdx] = 0;
-      sdcAbortIdx = 0;
-
-      if (strcmp(sdcAbortBuf, "sdcstop") == 0) {
-        sdc_abort_requested = true;
-        Serial.println("sdc interrupt requested (sdcstop;).");
-        return true;
-      }
-      continue;
-    }
-
-    if (sdcAbortIdx < sizeof(sdcAbortBuf) - 1) sdcAbortBuf[sdcAbortIdx++] = c;
-    else sdcAbortIdx = 0;
+  if (strcmp(cmd, "sdcstop") == 0) {
+    sdc_abort_requested = true;
+    Serial.println("sdc interrupt requested (sdcstop;).");
+    return true;
   }
 
-  return sdc_abort_requested;
+  Serial.print("Busy during sdc/sdcv; ignored command: ");
+  Serial.println(cmd);
+  return false;
 }
 
 static void sendPktHeader(uint8_t type) {
