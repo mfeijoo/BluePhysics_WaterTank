@@ -922,12 +922,12 @@ static bool setDarkCurrentChannelToTarget(uint8_t ch, float targetVolts, uint32_
   }
 }
 
-static bool setDarkCurrentToMinusTenVolts(uint16_t codeStep) {
-  Serial.print("Set dark current routine: target <= -10.0 V, samples=100, codeStep=");
+static bool setDarkCurrentToZeroVolts(uint16_t codeStep) {
+  Serial.print("Set dark current routine: target <= 0.0 V, samples=100, codeStep=");
   Serial.println((int)codeStep);
 
-  if (!setDarkCurrentChannelToTarget(0, -10.0f, 100, codeStep)) return false;
-  if (!setDarkCurrentChannelToTarget(1, -10.0f, 100, codeStep)) return false;
+  if (!setDarkCurrentChannelToTarget(0, 0.0f, 100, codeStep)) return false;
+  if (!setDarkCurrentChannelToTarget(1, 0.0f, 100, codeStep)) return false;
 
   Serial.println("Set dark current routine completed.");
   return true;
@@ -1570,7 +1570,7 @@ void loop() {
     return;
   }
 
-  //-----set dark current automatically to <= -10 V on ch0 and ch1: sdc[step];
+  //-----set dark current automatically to <= 0 V on ch0 and ch1: sdc[step];
   // examples: sdc; (default step 10), sdc10;, sdc20; ... sdc100;
   if (strncmp(cmd, "sdc", 3) == 0 && cmd[3] != 'v') {
     uint16_t codeStep = 10;
@@ -1592,7 +1592,7 @@ void loop() {
       codeStep = (uint16_t)stepLong;
     }
 
-    if (!setDarkCurrentToMinusTenVolts(codeStep)) {
+    if (!setDarkCurrentToZeroVolts(codeStep)) {
       sendErr('s', 0x03);
       return;
     }
