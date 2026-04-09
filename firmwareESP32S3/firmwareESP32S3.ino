@@ -1455,6 +1455,32 @@ void loop() {
     return;
   }
 
+  //-----temporary I2C scanner on configured bus: i2cscan;
+  if (strcmp(cmd, "i2cscan") == 0) {
+    Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN, I2C_CLOCK_HZ);
+    Serial.printf("I2C scan start (SDA=%d, SCL=%d, %d Hz)\n",
+                  I2C_SDA_PIN, I2C_SCL_PIN, I2C_CLOCK_HZ);
+
+    uint8_t found = 0;
+    for (uint8_t addr = 1; addr < 0x80; ++addr) {
+      Wire.beginTransmission(addr);
+      uint8_t err = Wire.endTransmission();
+      if (err == 0) {
+        Serial.printf("I2C device found at 0x%02X\n", addr);
+        found++;
+      } else if (err == 4) {
+        Serial.printf("I2C unknown error at 0x%02X\n", addr);
+      }
+    }
+
+    if (found == 0) {
+      Serial.println("I2C scan done: no devices found.");
+    } else {
+      Serial.printf("I2C scan done: %u device(s) found.\n", found);
+    }
+    return;
+  }
+
   //-------zero------
   if (cmd[0] == 'z' && cmd[1] == 0) {
   pcntZero(pcX);
