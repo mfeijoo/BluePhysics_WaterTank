@@ -8,6 +8,9 @@ All firmware commands are received over serial and must be terminated with a sem
 |---|---|
 | `t;` | Reads the MCP9808 temperature sensor and prints temperature in °C. |
 | `fram;` | Checks FRAM presence on `0x50` and `0x51`. If library init succeeds, prints selected address + manufacturer/product IDs; if only ACK is seen, it still reports FRAM detected (presence confirmed) and notes IDs are unavailable. |
+| `fram50;` | Simple presence check for the fixed FRAM device at `0x50`. |
+| `fw50<mem_addr>,<value>;` | Simple byte write on fixed FRAM `0x50` (`mem_addr` 16-bit, `value` 8-bit). Examples: `fw500,123;`, `fw50256,171;` (hex also accepted, e.g. `fw500x0100,0xAB;`). |
+| `fr50<mem_addr>;` | Simple byte read on fixed FRAM `0x50`. Examples: `fr500;`, `fr50256;` (hex also accepted, e.g. `fr500x0100;`). |
 | `i2cscan;` | Temporary diagnostic scan of the I2C bus (SDA=8, SCL=9, 100 kHz); prints every detected 7-bit address (useful to verify FRAM at `0x50`). |
 | `fwrite<dev_addr>,<mem_addr>,<value>;` | Raw byte write to I2C memory-style FRAM/EEPROM (`dev_addr` 7-bit, `mem_addr` 16-bit, `value` 8-bit). Examples: `fwrite0x50,0,123;`, `fwrite0x51,0x0100,0xAB;`. |
 | `fread<dev_addr>,<mem_addr>;` | Raw byte read from I2C memory-style FRAM/EEPROM. Examples: `fread0x50,0;`, `fread0x51,0x0100;`. |
