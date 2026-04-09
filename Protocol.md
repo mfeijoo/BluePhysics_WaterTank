@@ -345,7 +345,7 @@ Detector average ch<channel> from <samples> samples: <average_volts> V (<average
 
 ## 7.3) Set dark current command (`sdc[step];`)
 
-This command runs an automatic dark-current routine targeting detector average voltage `<= -10 V` on both detector channels using AD5675 DAC steps.
+This command runs an automatic dark-current routine targeting detector average voltage `<= 0 V` on both detector channels using AD5675 DAC steps.
 
 - `step` is optional and must be an integer `1..100`.
 - `sdc;` uses default `step=10`.
@@ -356,8 +356,8 @@ Sequence:
 1. **Channel 0**
    - Set DAC code to `0` using `ad5675_write_update(0, 0)`.
    - Measure `detReadAverageAndPrintHuman(0, 100)`.
-   - If average voltage is greater than `-10 V` (for example `-9 V`), increment DAC code by `+step` and measure again.
-   - Stop when average is `<= -10 V`.
+   - If average voltage is greater than `0 V` (for example `0.5 V`), increment DAC code by `+step` and measure again.
+   - Stop when average is `<= 0 V`.
    - Abort if DAC code reaches `65535`.
 2. **Channel 1**
    - Repeat the same process, always starting again from DAC code `0`.
