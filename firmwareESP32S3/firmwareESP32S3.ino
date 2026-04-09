@@ -5,6 +5,7 @@
 #include <SPI.h>
 #include <Wire.h>
 #include "Adafruit_MCP9808.h"
+#include "Adafruit_FRAM_I2C.h"
 #include "ADS1X15.h"
 
 //=======================================
@@ -12,8 +13,10 @@
 //=======================================
 
 Adafruit_MCP9808 tempsensor = Adafruit_MCP9808();
+Adafruit_FRAM_I2C fram = Adafruit_FRAM_I2C();
 //ADS1115_WE adc(0x48);F
 ADS1115 ADS(0x48);
+static bool fram_detected = false;
 
 unsigned int tempbytes;
 float temp;
@@ -28,6 +31,10 @@ static const uint16_t POT_MAX = 1023;
 static const uint8_t AD5675_ADDR = 0x0F;
 static const uint8_t AD5675_CMD_WRITE_UPDATE = 0x3;
 static uint16_t dark_current_code[2] = {0, 0};
+#define I2C_SDA_PIN 8
+#define I2C_SCL_PIN 9
+#define I2C_CLOCK_HZ 100000
+#define FRAM_SIMPLE_ADDR MB85RC_DEFAULT_ADDRESS
 #define PSFC 16.1817
 #define PSFCind 0.14022
 //#define PSFC 1
@@ -317,6 +324,32 @@ static uint8_t ad5675_write_update(uint8_t ch, uint16_t code) {
   uint8_t tx_status = (uint8_t)Wire.endTransmission();
   if (tx_status == 0) dark_current_code[ch] = code;
   return (tx_status == 0) ? 1 : 0;
+}
+
+static bool i2cDevicePresent(uint8_t addr) {
+  Wire.beginTransmission(addr);
+  return (Wire.endTransmission() == 0);
+}
+
+static bool framRawWriteByte(uint8_t devAddr, uint16_t memAddr, uint8_t value) {
+  Wire.beginTransmission(devAddr);
+  Wire.write((uint8_t)(memAddr >> 8));
+  Wire.write((uint8_t)(memAddr & 0xFF));
+  Wire.write(value);
+  return (Wire.endTransmission() == 0);
+}
+
+static bool framRawReadByte(uint8_t devAddr, uint16_t memAddr, uint8_t &valueOut) {
+  Wire.beginTransmission(devAddr);
+  Wire.write((uint8_t)(memAddr >> 8));
+  Wire.write((uint8_t)(memAddr & 0xFF));
+  if (Wire.endTransmission(false) != 0) return false;
+
+  uint8_t n = Wire.requestFrom((int)devAddr, 1);
+  if (n != 1 || !Wire.available()) return false;
+
+  valueOut = Wire.read();
+  return true;
 }
 
 static bool parseLimitValue(char *&p, int32_t &out, bool requireComma) {
@@ -1379,13 +1412,17 @@ void setup() {
     detWriteProgramRegister(reg, 0x00);
   }
 
-  Wire.begin();
-
   ADS.begin();
   ADS.setGain(0);
 
+  // Keep I2C configuration aligned with test_sketch_Aleix_Cartucho.
+  // Re-apply after ADS.begin() in case the ADS library re-initializes Wire.
+  Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN, I2C_CLOCK_HZ);
+
+  fram_detected = fram.begin(MB85RC_DEFAULT_ADDRESS, &Wire);
+
   //Temperature sensor setup
-  tempsensor.begin(0x18);
+  tempsensor.begin(0x18, &Wire);
   tempsensor.setResolution(3); //this line on
   // Mode Resolution SampleTime
   //  0    0.5°C       30 ms
@@ -1424,6 +1461,233 @@ void loop() {
     //Serial.write(0xAA);
     //Serial.write(0x55);
     //Serial.write((uint8_t*)&tempbytes, 2);
+    return;
+  }
+
+  //-----check FRAM I2C presence: fram;
+  if (strcmp(cmd, "fram") == 0) {
+    // Ensure FRAM probe uses the same explicit I2C bus config as setup.
+    Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN, I2C_CLOCK_HZ);
+    const uint8_t fram_addr0 = MB85RC_DEFAULT_ADDRESS;      // usually 0x50
+    const uint8_t fram_addr1 = MB85RC_DEFAULT_ADDRESS + 1;  // usually 0x51
+
+    bool ack0 = i2cDevicePresent(fram_addr0);
+    bool ack1 = i2cDevicePresent(fram_addr1);
+    uint8_t selected_addr = 0;
+    fram_detected = false;
+
+    if (ack0 && fram.begin(fram_addr0, &Wire)) {
+      fram_detected = true;
+      selected_addr = fram_addr0;
+    } else if (ack1 && fram.begin(fram_addr1, &Wire)) {
+      fram_detected = true;
+      selected_addr = fram_addr1;
+    }
+
+    uint16_t manufacturerID = 0;
+    uint16_t productID = 0;
+    if (fram_detected) {
+      fram.getDeviceID(&manufacturerID, &productID);
+      Serial.printf("FRAM detected at 0x%02X. Manufacturer ID: 0x%04X, Product ID: 0x%04X\n",
+                    selected_addr, manufacturerID, productID);
+    } else if (ack0 || ack1) {
+      Serial.printf("FRAM detected by I2C ACK (0x%02X=%d, 0x%02X=%d).\n",
+                    fram_addr0, ack0 ? 1 : 0, fram_addr1, ack1 ? 1 : 0);
+      Serial.println("Note: FRAM library init failed, so Manufacturer/Product ID is unavailable.");
+    } else {
+      Serial.println("FRAM not detected.");
+    }
+    return;
+  }
+
+  //-----simple FRAM presence check on fixed device 0x50: fram50;
+  if (strcmp(cmd, "fram50") == 0) {
+    Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN, I2C_CLOCK_HZ);
+    if (i2cDevicePresent(FRAM_SIMPLE_ADDR)) {
+      Serial.printf("FRAM 0x%02X detected.\n", FRAM_SIMPLE_ADDR);
+    } else {
+      Serial.printf("FRAM 0x%02X not detected.\n", FRAM_SIMPLE_ADDR);
+    }
+    return;
+  }
+
+  //-----simple FRAM write on fixed device 0x50: fw50<mem_addr>,<value>;
+  // examples: fw500,123;  fw50256,171;  (hex accepted too, e.g. fw500x0100,0xAB;)
+  if (strncmp(cmd, "fw50", 4) == 0) {
+    char *p = cmd + 4;
+    char *end = nullptr;
+
+    unsigned long memAddrUL = strtoul(p, &end, 0);
+    if (end == p || *end != ',') {
+      Serial.println("Error: malformed fw50. Use fw50<mem_addr>,<value>;");
+      return;
+    }
+
+    p = end + 1;
+    unsigned long valueUL = strtoul(p, &end, 0);
+    if (end == p || *end != 0) {
+      Serial.println("Error: malformed fw50. Use fw50<mem_addr>,<value>;");
+      return;
+    }
+
+    if (memAddrUL > 0xFFFF || valueUL > 0xFF) {
+      Serial.println("Error: fw50 out of range. mem_addr<=0xFFFF, value<=0xFF.");
+      return;
+    }
+
+    uint16_t memAddr = (uint16_t)memAddrUL;
+    uint8_t value = (uint8_t)valueUL;
+
+    Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN, I2C_CLOCK_HZ);
+    if (!framRawWriteByte(FRAM_SIMPLE_ADDR, memAddr, value)) {
+      Serial.printf("FRAM 0x%02X write failed at mem 0x%04X\n", FRAM_SIMPLE_ADDR, memAddr);
+      return;
+    }
+
+    Serial.printf("FRAM 0x%02X write OK: mem 0x%04X <= 0x%02X\n",
+                  FRAM_SIMPLE_ADDR, memAddr, value);
+    return;
+  }
+
+  //-----simple FRAM read on fixed device 0x50: fr50<mem_addr>;
+  // examples: fr500;  fr50256;  (hex accepted too, e.g. fr500x0100;)
+  if (strncmp(cmd, "fr50", 4) == 0) {
+    char *p = cmd + 4;
+    char *end = nullptr;
+
+    unsigned long memAddrUL = strtoul(p, &end, 0);
+    if (end == p || *end != 0) {
+      Serial.println("Error: malformed fr50. Use fr50<mem_addr>;");
+      return;
+    }
+
+    if (memAddrUL > 0xFFFF) {
+      Serial.println("Error: fr50 out of range. mem_addr<=0xFFFF.");
+      return;
+    }
+
+    uint16_t memAddr = (uint16_t)memAddrUL;
+    uint8_t value = 0;
+
+    Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN, I2C_CLOCK_HZ);
+    if (!framRawReadByte(FRAM_SIMPLE_ADDR, memAddr, value)) {
+      Serial.printf("FRAM 0x%02X read failed at mem 0x%04X\n", FRAM_SIMPLE_ADDR, memAddr);
+      return;
+    }
+
+    Serial.printf("FRAM 0x%02X read OK: mem 0x%04X => 0x%02X (%u)\n",
+                  FRAM_SIMPLE_ADDR, memAddr, value, value);
+    return;
+  }
+
+  //-----temporary I2C scanner on configured bus: i2cscan;
+  if (strcmp(cmd, "i2cscan") == 0) {
+    Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN, I2C_CLOCK_HZ);
+    Serial.printf("I2C scan start (SDA=%d, SCL=%d, %d Hz)\n",
+                  I2C_SDA_PIN, I2C_SCL_PIN, I2C_CLOCK_HZ);
+
+    uint8_t found = 0;
+    for (uint8_t addr = 1; addr < 0x80; ++addr) {
+      Wire.beginTransmission(addr);
+      uint8_t err = Wire.endTransmission();
+      if (err == 0) {
+        Serial.printf("I2C device found at 0x%02X\n", addr);
+        found++;
+      } else if (err == 4) {
+        Serial.printf("I2C unknown error at 0x%02X\n", addr);
+      }
+    }
+
+    if (found == 0) {
+      Serial.println("I2C scan done: no devices found.");
+    } else {
+      Serial.printf("I2C scan done: %u device(s) found.\n", found);
+    }
+    return;
+  }
+
+  //-----raw FRAM write byte: fwrite<dev_addr>,<mem_addr>,<value>;
+  // examples: fwrite0x50,0,123;  fwrite0x51,0x0100,0xAB;
+  if (strncmp(cmd, "fwrite", 6) == 0) {
+    char *p = cmd + 6;
+    char *end = nullptr;
+
+    unsigned long devAddrUL = strtoul(p, &end, 0);
+    if (end == p || *end != ',') {
+      Serial.println("Error: malformed fwrite. Use fwrite<dev_addr>,<mem_addr>,<value>;");
+      return;
+    }
+
+    p = end + 1;
+    unsigned long memAddrUL = strtoul(p, &end, 0);
+    if (end == p || *end != ',') {
+      Serial.println("Error: malformed fwrite. Use fwrite<dev_addr>,<mem_addr>,<value>;");
+      return;
+    }
+
+    p = end + 1;
+    unsigned long valueUL = strtoul(p, &end, 0);
+    if (end == p || *end != 0) {
+      Serial.println("Error: malformed fwrite. Use fwrite<dev_addr>,<mem_addr>,<value>;");
+      return;
+    }
+
+    if (devAddrUL > 0x7F || memAddrUL > 0xFFFF || valueUL > 0xFF) {
+      Serial.println("Error: fwrite out of range. dev_addr<=0x7F, mem_addr<=0xFFFF, value<=0xFF.");
+      return;
+    }
+
+    uint8_t devAddr = (uint8_t)devAddrUL;
+    uint16_t memAddr = (uint16_t)memAddrUL;
+    uint8_t value = (uint8_t)valueUL;
+
+    Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN, I2C_CLOCK_HZ);
+    if (!framRawWriteByte(devAddr, memAddr, value)) {
+      Serial.printf("FRAM raw write failed at dev 0x%02X, mem 0x%04X\n", devAddr, memAddr);
+      return;
+    }
+
+    Serial.printf("FRAM raw write OK: dev 0x%02X, mem 0x%04X <= 0x%02X\n",
+                  devAddr, memAddr, value);
+    return;
+  }
+
+  //-----raw FRAM read byte: fread<dev_addr>,<mem_addr>;
+  // examples: fread0x50,0;  fread0x51,0x0100;
+  if (strncmp(cmd, "fread", 5) == 0) {
+    char *p = cmd + 5;
+    char *end = nullptr;
+
+    unsigned long devAddrUL = strtoul(p, &end, 0);
+    if (end == p || *end != ',') {
+      Serial.println("Error: malformed fread. Use fread<dev_addr>,<mem_addr>;");
+      return;
+    }
+
+    p = end + 1;
+    unsigned long memAddrUL = strtoul(p, &end, 0);
+    if (end == p || *end != 0) {
+      Serial.println("Error: malformed fread. Use fread<dev_addr>,<mem_addr>;");
+      return;
+    }
+
+    if (devAddrUL > 0x7F || memAddrUL > 0xFFFF) {
+      Serial.println("Error: fread out of range. dev_addr<=0x7F, mem_addr<=0xFFFF.");
+      return;
+    }
+
+    uint8_t devAddr = (uint8_t)devAddrUL;
+    uint16_t memAddr = (uint16_t)memAddrUL;
+    uint8_t value = 0;
+
+    Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN, I2C_CLOCK_HZ);
+    if (!framRawReadByte(devAddr, memAddr, value)) {
+      Serial.printf("FRAM raw read failed at dev 0x%02X, mem 0x%04X\n", devAddr, memAddr);
+      return;
+    }
+
+    Serial.printf("FRAM raw read OK: dev 0x%02X, mem 0x%04X => 0x%02X (%u)\n",
+                  devAddr, memAddr, value, value);
     return;
   }
 
