@@ -1385,13 +1385,14 @@ void setup() {
     detWriteProgramRegister(reg, 0x00);
   }
 
+  ADS.begin();
+  ADS.setGain(0);
+
   // Keep I2C configuration aligned with test_sketch_Aleix_Cartucho.
+  // Re-apply after ADS.begin() in case the ADS library re-initializes Wire.
   Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN, I2C_CLOCK_HZ);
 
   fram_detected = fram.begin(MB85RC_DEFAULT_ADDRESS, &Wire);
-
-  ADS.begin();
-  ADS.setGain(0);
 
   //Temperature sensor setup
   tempsensor.begin(0x18, &Wire);
@@ -1438,6 +1439,8 @@ void loop() {
 
   //-----check FRAM I2C presence: fram;
   if (strcmp(cmd, "fram") == 0) {
+    // Ensure FRAM probe uses the same explicit I2C bus config as setup.
+    Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN, I2C_CLOCK_HZ);
     fram_detected = fram.begin(MB85RC_DEFAULT_ADDRESS, &Wire);
 
     uint16_t manufacturerID = 0;
