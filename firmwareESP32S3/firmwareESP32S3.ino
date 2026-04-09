@@ -345,9 +345,11 @@ static bool framRawReadByte(uint8_t devAddr, uint16_t memAddr, uint8_t &valueOut
   Wire.beginTransmission(devAddr);
   Wire.write((uint8_t)(memAddr >> 8));
   Wire.write((uint8_t)(memAddr & 0xFF));
-  if (Wire.endTransmission(false) != 0) return false;
+  // Use STOP before requestFrom for compatibility with FRAM modules that
+  // do not reliably latch the address pointer on repeated-start reads.
+  if (Wire.endTransmission(true) != 0) return false;
 
-  uint8_t n = Wire.requestFrom((int)devAddr, 1);
+  size_t n = Wire.requestFrom((uint8_t)devAddr, (size_t)1, (bool)true);
   if (n != 1 || !Wire.available()) return false;
 
   valueOut = Wire.read();
