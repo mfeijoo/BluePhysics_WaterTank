@@ -90,6 +90,7 @@ with cols[2]:
 Date and time: {current_time}
 Description: {description_addition}
 ACR used: {st.session_state.get("acr_value", 1.0)}
+Calibration factor used: {st.session_state.get("calibration_factor", 1.0)}
 Rank used: {st.session_state.get("rank_value", 1)}
 Integration time: {integration_value} us
 """
@@ -216,10 +217,12 @@ if 'flash_file_to_analyze' in st.session_state:
                               format="%.3f"
                               )
 
-    plotg, dfi, fig2 =  calc_shots_integrals(st.session_state['flash_file_to_analyze'],
-                                             ACR = ACR_now,
-                                             cutoff=cutoff_now
-                                             )
+    plotg, dfi, fig2 = calc_shots_integrals(
+        st.session_state['flash_file_to_analyze'],
+        ACR=ACR_now,
+        cutoff=cutoff_now,
+        calibration_factor=st.session_state.get("calibration_factor", 1.0),
+    )
     st.plotly_chart(plotg, key="flash_result_main")
     pulseson = st.checkbox('See pulses')
 

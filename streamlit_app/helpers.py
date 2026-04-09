@@ -10,7 +10,7 @@ import plotly.graph_objects as go
 # inputs: file with the raw data, ACR, cut-off.
 # returns a data frame with the value of the integrals
 # returs plots of grouping and pulses
-def calc_shots_integrals(filename, ACR=1, cutoff=40):
+def calc_shots_integrals(filename, ACR=1, cutoff=40, calibration_factor=1.0):
     # Read the first lines in the file
     lines = []
     with open(filename) as f:
@@ -55,7 +55,7 @@ def calc_shots_integrals(filename, ACR=1, cutoff=40):
     # calculate doses
     dfz['sensorcharge'] = dfz.ch0z * capacitor
     dfz['cerenkovcharge'] = dfz.ch1z * capacitor
-    dfz['dose'] = dfz.sensorcharge - dfz.cerenkovcharge * ACR
+    dfz['dose'] = (dfz.sensorcharge - dfz.cerenkovcharge * ACR) * calibration_factor
     # groupby every 300 ms
     dfz['chunk'] = dfz.Number // (300000 / 700)
     group = dfz.groupby('chunk')
