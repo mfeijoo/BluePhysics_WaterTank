@@ -23,9 +23,7 @@ ASCII command string terminated by semicolon:
 - `itime;`
 - `info;`
 - `stepdelays800,800;`
-- `b;`
 - `i700;`
-- `m2000;`
 - `readbytes100;`
 - `avgdet0;`
 - `avgdet1,250;`
@@ -35,8 +33,6 @@ ASCII command string terminated by semicolon:
 - `sdcv-10.2,25;`
 - `sdcstop;`
 - `M10,25.5,-3;`
-- `S10,25.5,-3;`
-- `Q10,25.5,-3,2000;`
 - `x200;`, `y-50;`, `z1000;`, `Z300;`
 - `ux200;`, `uy-50;`, `uz1000;`, `uZ300;`
 

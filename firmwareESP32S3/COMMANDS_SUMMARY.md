@@ -6,7 +6,6 @@ All firmware commands are received over serial and must be terminated with a sem
 
 | Command | What it does |
 |---|---|
-| `f;` | Queries FRAM startup/programming status and prints the result in human-readable text. |
 | `t;` | Reads the MCP9808 temperature sensor and prints temperature in °C. |
 | `info;` | Prints device model and firmware version. |
 | `eh0;` | Sets error reporting to binary packet mode. |
