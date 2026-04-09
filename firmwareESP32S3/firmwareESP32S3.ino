@@ -1469,8 +1469,9 @@ void loop() {
       Serial.printf("FRAM detected at 0x%02X. Manufacturer ID: 0x%04X, Product ID: 0x%04X\n",
                     selected_addr, manufacturerID, productID);
     } else if (ack0 || ack1) {
-      Serial.printf("FRAM ACK detected on I2C (0x%02X=%d, 0x%02X=%d), but FRAM library init failed.\n",
+      Serial.printf("FRAM detected by I2C ACK (0x%02X=%d, 0x%02X=%d).\n",
                     fram_addr0, ack0 ? 1 : 0, fram_addr1, ack1 ? 1 : 0);
+      Serial.println("Note: FRAM library init failed, so Manufacturer/Product ID is unavailable.");
     } else {
       Serial.println("FRAM not detected.");
     }
