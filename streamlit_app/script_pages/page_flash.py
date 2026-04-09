@@ -47,11 +47,25 @@ description_addition = "{" + description_addition + "}"
 
 concurrent_plot = st.empty()
 
+pulse_threshold_v = st.number_input(
+    "Pulse threshold (V):",
+    value=-9.0,
+    step=0.1,
+    format="%.3f",
+)
+acr_value = float(st.session_state.get("acr_value", 1.0))
+calibration_factor = float(st.session_state.get("calibration_factor", 1.0))
+st.caption(
+    f"Pulse-count settings sent to firmware via RSP: threshold={pulse_threshold_v:.3f} V, "
+    f"ACR={acr_value:.3f}, calibration factor={calibration_factor:.3f}"
+)
+
 cols = st.columns([3, 3, 3, 1], vertical_alignment="center")
 with cols[1]:
     if st.button('Start', disabled=(not connected) or mgr.rs_capture_active):
         st.session_state['measuring_flash'] = True
-        start_result = mgr.start_rs_capture()
+        rsp_cmd = f"rsp{pulse_threshold_v:.3f},{acr_value:.3f},{calibration_factor:.3f};"
+        start_result = mgr.start_rs_capture(command=rsp_cmd)
         if not start_result.get("ok"):
             st.error(start_result.get("error", "Unable to start measurement."))
 with cols[2]:
@@ -91,6 +105,7 @@ Date and time: {current_time}
 Description: {description_addition}
 ACR used: {st.session_state.get("acr_value", 1.0)}
 Calibration factor used: {st.session_state.get("calibration_factor", 1.0)}
+Pulse threshold used: {pulse_threshold_v:.3f}
 Rank used: {st.session_state.get("rank_value", 1)}
 Integration time: {integration_value} us
 """
