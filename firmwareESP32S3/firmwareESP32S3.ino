@@ -357,8 +357,8 @@ static bool framRawReadByte(uint8_t devAddr, uint16_t memAddr, uint8_t &valueOut
 static bool framReadOptimalVoltageBytes(uint8_t &intPart, uint8_t &decimalPart) {
   if (!i2cDevicePresent(FRAM_SIMPLE_ADDR)) return false;
   if (!fram.begin(FRAM_SIMPLE_ADDR, &Wire)) return false;
-  intPart = fram.read8(FRAM_OPTIMAL_VOLTAGE_INT_ADDR);
-  decimalPart = fram.read8(FRAM_OPTIMAL_VOLTAGE_DEC_ADDR);
+  intPart = fram.read(FRAM_OPTIMAL_VOLTAGE_INT_ADDR);
+  decimalPart = fram.read(FRAM_OPTIMAL_VOLTAGE_DEC_ADDR);
   return true;
 }
 
@@ -1631,8 +1631,8 @@ void loop() {
       Serial.printf("FRAM 0x%02X write failed for optimal voltage.\n", FRAM_SIMPLE_ADDR);
       return;
     }
-    fram.write8(FRAM_OPTIMAL_VOLTAGE_INT_ADDR, reqInt);
-    fram.write8(FRAM_OPTIMAL_VOLTAGE_DEC_ADDR, reqDec);
+    fram.write(FRAM_OPTIMAL_VOLTAGE_INT_ADDR, reqInt);
+    fram.write(FRAM_OPTIMAL_VOLTAGE_DEC_ADDR, reqDec);
 
     uint8_t intByte = 0;
     uint8_t decByte = 0;
