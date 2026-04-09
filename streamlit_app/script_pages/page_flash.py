@@ -142,8 +142,6 @@ while st.session_state['measuring_OF']:
                                      labels={'Time': 'Time (s)', 'Dose': 'Charge proportional to dose (nC)'})
         concurrent_plot.plotly_chart(plot_concurrent, key=f"of_live_{time.time()}")
 
-st.header("Create OF table")
-
 def extract_datetime_from_name(path):
     base = os.path.basename(path)
     name, _ = os.path.splitext(base)
@@ -227,56 +225,3 @@ if 'file_to_analyze' in st.session_state:
 
     if pulseson:
         st.plotly_chart(fig2, key="of_result_pulses")
-
-    # A way to upload the file sizes of each shot
-    #first select is these are square files or circle files
-    field_shape = st.radio('Field Shape', ['rectangular', 'circular'])
-    # calculate Sclin
-
-    columns_now = list(dfi.columns)
-    dfi['center_x_mm'] = 0.0
-    dfi['center_y_mm'] = 0.0
-    dfi['field_size_x_mm'] = 10.0
-    dfi['field_size_y_mm'] = 10.0
-
-    # Add nominal field size columns
-    nominal_x = 1.0
-    nominal_y = 1.0
-    dfi['nominal_field_size_x_cm'] = nominal_x
-    dfi['nominal_field_size_y_cm'] = nominal_y
-
-    columns_disabled = columns_now
-
-
-    st.write('Change the field size (Sclin) in mm')
-    dfi_edited = st.data_editor(dfi.round(2), hide_index = True,  disabled=columns_disabled)
-    if field_shape == 'rectangular':
-        Sclin = (dfi_edited['field_size_x_mm'] * dfi_edited['field_size_y_mm']) ** 0.5
-    else:
-        Sclin = (np.pi) ** 0.5 * (dfi_edited['field_size_x_mm']  + dfi_edited['field_size_y_mm']) / 4
-    dfi_edited['Sclin_mm'] = Sclin
-
-    text_file_name = st.text_input('add free text for file')
-
-    st.write(f"File name prefix for OF table: dfOF_{text_file_name}_...")
-    if st.button('Save OF Data'):
-        current_time_now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        file_name = f'dfOF_{text_file_name}_{current_time_now}.csv'
-        file_path = os.path.join(of_table_folder, file_name)
-
-        # Save with header if available
-        with open(file_path, 'w') as f:
-            if 'file_to_analyze' in st.session_state:
-
-                header_lines_to_save = f"""Output Factor Table
-Date and time: {current_time_now}
-ACR used: {ACR_now}
-Capacitator used: {capacitator}
-Integration time: {integration_time_us} us
-Cutoff: {cutoff_now}
-"""
-                f.writelines(header_lines_to_save)
-            dfi_edited.to_csv(f, index=False)
-
-        st.toast(f"File saved: {file_name}")
-
