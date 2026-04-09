@@ -5,6 +5,7 @@
 #include <SPI.h>
 #include <Wire.h>
 #include "Adafruit_MCP9808.h"
+#include "Adafruit_FRAM_I2C.h"
 #include "ADS1X15.h"
 
 //=======================================
@@ -12,8 +13,10 @@
 //=======================================
 
 Adafruit_MCP9808 tempsensor = Adafruit_MCP9808();
+Adafruit_FRAM_I2C fram = Adafruit_FRAM_I2C();
 //ADS1115_WE adc(0x48);F
 ADS1115 ADS(0x48);
+static bool fram_detected = false;
 
 unsigned int tempbytes;
 float temp;
@@ -1381,6 +1384,8 @@ void setup() {
 
   Wire.begin();
 
+  fram_detected = fram.begin(MB85RC_DEFAULT_ADDRESS, &Wire);
+
   ADS.begin();
   ADS.setGain(0);
 
@@ -1424,6 +1429,22 @@ void loop() {
     //Serial.write(0xAA);
     //Serial.write(0x55);
     //Serial.write((uint8_t*)&tempbytes, 2);
+    return;
+  }
+
+  //-----check FRAM I2C presence: fram;
+  if (strcmp(cmd, "fram") == 0) {
+    fram_detected = fram.begin(MB85RC_DEFAULT_ADDRESS, &Wire);
+
+    uint16_t manufacturerID = 0;
+    uint16_t productID = 0;
+    if (fram_detected) {
+      fram.getDeviceID(&manufacturerID, &productID);
+      Serial.printf("FRAM detected. Manufacturer ID: 0x%04X, Product ID: 0x%04X\n",
+                    manufacturerID, productID);
+    } else {
+      Serial.println("FRAM not detected.");
+    }
     return;
   }
 
