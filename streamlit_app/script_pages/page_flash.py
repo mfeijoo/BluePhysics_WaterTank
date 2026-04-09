@@ -22,8 +22,8 @@ connected = mgr.is_connected()
 measurements_folder = os.path.join("Measurements", "Shots")
 of_table_folder = os.path.join("Measurements", "OF_tables")
 
-if 'measuring_OF' not in st.session_state:
-    st.session_state['measuring_OF'] = False
+if 'measuring_flash' not in st.session_state:
+    st.session_state['measuring_flash'] = False
 
 if 'is_started' not in st.session_state:
     st.session_state['is_started'] = False
@@ -31,18 +31,18 @@ if 'is_started' not in st.session_state:
 if 'integration_time' not in st.session_state:
     st.session_state['integration_time'] = None
 
-st.header("OF Measurement")
+st.header("Flash Measurement")
 
-filename_prefix = st.text_input("Filename prefix:", value="Output_Factor_")
+filename_prefix = st.text_input("Filename prefix:", value="Flash_")
 current_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 st.write(f"Complete filename preview: {filename_prefix}_{current_time}.csv")
 
 def sanitize_description():
-    text = st.session_state.description_addition
+    text = st.session_state.flash_description_addition
     cleaned = text.replace("{", "").replace("}", "")
-    st.session_state.description_addition = cleaned
+    st.session_state.flash_description_addition = cleaned
 
-description_addition = st.text_area("Add description to file header:", on_change=sanitize_description, key="description_addition", placeholder="Characters not permitted: { }")
+description_addition = st.text_area("Add description to file header:", on_change=sanitize_description, key="flash_description_addition", placeholder="Characters not permitted: { }")
 description_addition = "{" + description_addition + "}"
 
 concurrent_plot = st.empty()
@@ -50,13 +50,13 @@ concurrent_plot = st.empty()
 cols = st.columns([3, 3, 3, 1], vertical_alignment="center")
 with cols[1]:
     if st.button('Start', disabled=(not connected) or mgr.rs_capture_active):
-        st.session_state['measuring_OF'] = True
+        st.session_state['measuring_flash'] = True
         start_result = mgr.start_rs_capture()
         if not start_result.get("ok"):
             st.error(start_result.get("error", "Unable to start measurement."))
 with cols[2]:
     if st.button('Stop', disabled=(not connected) or (not mgr.rs_capture_active)):
-        st.session_state['measuring_OF'] = False
+        st.session_state['measuring_flash'] = False
         stop_result = mgr.stop_rs_capture()
         st.session_state.rs_session_result = stop_result
         if stop_result.get("ok"):
@@ -86,7 +86,7 @@ with cols[2]:
             integration_value = df_rawdata["dt_us"].diff()
             st.session_state.integration_time = integration_value
 
-            header = f"""Output Factor
+            header = f"""Flash
 Date and time: {current_time}
 Description: {description_addition}
 ACR used: {st.session_state.get("acr_value", 1.0)}
@@ -103,13 +103,13 @@ Integration time: {integration_value} us
                 # Append DataFrame
                 df.to_csv(f, index=False)
             st.toast("File downloaded successfully!")
-            st.session_state['file_to_analyze'] = file_path
+            st.session_state['flash_file_to_analyze'] = file_path
             time.sleep(0.5)
             st.rerun()
 
 
 
-while st.session_state['measuring_OF']:
+while st.session_state['measuring_flash']:
     time.sleep(0.5)
     buffer_result = mgr.get_rs_capture_buf()
     if not buffer_result.get("ok"):
@@ -140,7 +140,7 @@ while st.session_state['measuring_OF']:
         df = df.groupby('time_bin').agg({'Time': 'median', 'ch0': 'sum', 'ch1': 'sum'}).reset_index(drop=True)
         plot_concurrent = px.scatter(df, x='Time', y='ch0',
                                      labels={'Time': 'Time (s)', 'Dose': 'Charge proportional to dose (nC)'})
-        concurrent_plot.plotly_chart(plot_concurrent, key=f"of_live_{time.time()}")
+        concurrent_plot.plotly_chart(plot_concurrent, key=f"flash_live_{time.time()}")
 
 def extract_datetime_from_name(path):
     base = os.path.basename(path)
@@ -194,11 +194,11 @@ list_original_files = sorted(list_original_files, key=extract_datetime_from_name
 # Show only filenames in the dropdown
 list_names = ['select a file...'] + [os.path.basename(f) for f in list_original_files]
 
-file_now_name = st.selectbox('...Or select file to create OF df', list_names)
+file_now_name = st.selectbox('...Or select file to create Flash df', list_names)
 
 if file_now_name != 'select a file...':
     file_now = os.path.join("Measurements", "Shots", file_now_name)
-    st.session_state['file_to_analyze'] = file_now
+    st.session_state['flash_file_to_analyze'] = file_now
     dforig, capacitator, integration_time_us, acr_used = read_dataframe(file_now)
 else:
     file_now = 'select a file...'
@@ -206,7 +206,7 @@ else:
     capacitator = st.session_state.get("rank_value", 1.0)
     integration_time_us = st.session_state.get("integration_time", 1.0)
 
-if 'file_to_analyze' in st.session_state:
+if 'flash_file_to_analyze' in st.session_state:
 
     cutoff_now = st.selectbox('Select cut off: ', [0.5,8, 10, 20, 40, 100, 150], index=4)
     ACR_now = st.number_input('Select ACR value:',
@@ -216,12 +216,12 @@ if 'file_to_analyze' in st.session_state:
                               format="%.3f"
                               )
 
-    plotg, dfi, fig2 =  calc_shots_integrals(st.session_state['file_to_analyze'],
+    plotg, dfi, fig2 =  calc_shots_integrals(st.session_state['flash_file_to_analyze'],
                                              ACR = ACR_now,
                                              cutoff=cutoff_now
                                              )
-    st.plotly_chart(plotg, key="of_result_main")
+    st.plotly_chart(plotg, key="flash_result_main")
     pulseson = st.checkbox('See pulses')
 
     if pulseson:
-        st.plotly_chart(fig2, key="of_result_pulses")
+        st.plotly_chart(fig2, key="flash_result_pulses")
