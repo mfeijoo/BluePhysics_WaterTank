@@ -355,10 +355,15 @@ static bool framRawReadByte(uint8_t devAddr, uint16_t memAddr, uint8_t &valueOut
 }
 
 static bool framReadOptimalVoltageBytes(uint8_t &intPart, uint8_t &decimalPart) {
-  if (!i2cDevicePresent(FRAM_SIMPLE_ADDR)) return false;
-  if (!fram.begin(FRAM_SIMPLE_ADDR, &Wire)) return false;
-  intPart = fram.read(FRAM_OPTIMAL_VOLTAGE_INT_ADDR);
-  decimalPart = fram.read(FRAM_OPTIMAL_VOLTAGE_DEC_ADDR);
+  if (fram.begin(FRAM_SIMPLE_ADDR, &Wire)) {
+    intPart = fram.read(FRAM_OPTIMAL_VOLTAGE_INT_ADDR);
+    decimalPart = fram.read(FRAM_OPTIMAL_VOLTAGE_DEC_ADDR);
+    return true;
+  }
+
+  // Fallback for environments where Adafruit_FRAM_I2C begin/read path is flaky.
+  if (!framRawReadByte(FRAM_SIMPLE_ADDR, FRAM_OPTIMAL_VOLTAGE_INT_ADDR, intPart)) return false;
+  if (!framRawReadByte(FRAM_SIMPLE_ADDR, FRAM_OPTIMAL_VOLTAGE_DEC_ADDR, decimalPart)) return false;
   return true;
 }
 
@@ -1627,12 +1632,20 @@ void loop() {
     }
 
     Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN, I2C_CLOCK_HZ);
-    if (!i2cDevicePresent(FRAM_SIMPLE_ADDR) || !fram.begin(FRAM_SIMPLE_ADDR, &Wire)) {
+    bool writeOk = false;
+    if (fram.begin(FRAM_SIMPLE_ADDR, &Wire)) {
+      fram.write(FRAM_OPTIMAL_VOLTAGE_INT_ADDR, reqInt);
+      fram.write(FRAM_OPTIMAL_VOLTAGE_DEC_ADDR, reqDec);
+      writeOk = true;
+    } else {
+      writeOk = framRawWriteByte(FRAM_SIMPLE_ADDR, FRAM_OPTIMAL_VOLTAGE_INT_ADDR, reqInt) &&
+                framRawWriteByte(FRAM_SIMPLE_ADDR, FRAM_OPTIMAL_VOLTAGE_DEC_ADDR, reqDec);
+    }
+
+    if (!writeOk) {
       Serial.printf("FRAM 0x%02X write failed for optimal voltage.\n", FRAM_SIMPLE_ADDR);
       return;
     }
-    fram.write(FRAM_OPTIMAL_VOLTAGE_INT_ADDR, reqInt);
-    fram.write(FRAM_OPTIMAL_VOLTAGE_DEC_ADDR, reqDec);
 
     uint8_t intByte = 0;
     uint8_t decByte = 0;
