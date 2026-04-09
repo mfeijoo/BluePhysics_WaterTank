@@ -811,8 +811,9 @@ static void detReadOnce() {
 static float detCountsToVolts(float counts) {
   // Same conversion used in test_sketch_Aleix_Cartucho/SPIADC2.cpp:
   // V = (code - 32768) * (FSR / 65536), where FSR = 5 * Vref (±2.5*Vref)
+  // Sign inverted so detector light pulses are reported as positive voltage.
   const float fsr = 5.0f * ADS8688A_VREF;
-  return (counts - 32768.0f) * (fsr / 65536.0f);
+  return -((counts - 32768.0f) * (fsr / 65536.0f));
 }
 
 static float detReadAverageAndPrintHuman(uint8_t channel, uint32_t sampleCount, float *averageCountsOut, bool printHuman) {
@@ -1650,8 +1651,8 @@ void loop() {
       }
     }
 
-    // Conversion now follows test sketch ADS8688A formula (codeToVolt):
-    // V = (code - 32768) * ((5 * Vref) / 65536), with Vref=4.096V.
+    // Conversion follows test-sketch scaling, with inverted sign:
+    // V = -((code - 32768) * ((5 * Vref) / 65536)), with Vref=4.096V.
     // Valid negative detector target range requested by protocol.
     if (targetVolts < -10.5f || targetVolts > 0.0f) {
       sendErr('s', 0x05);
