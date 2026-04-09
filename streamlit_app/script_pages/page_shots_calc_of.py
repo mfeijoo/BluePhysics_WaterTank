@@ -57,7 +57,7 @@ def read_csv_safe(file_path):
         return pd.DataFrame()
 
 @st.cache_data
-def process_dataset(files, grouping_col, new_acr=None):
+def process_dataset(files, grouping_col, new_acr=None, calibration_factor=1.0):
     """Reads and processes a set of files. Returns (df_grouped, df_raw)."""
     dfs = []
     for file in files:
@@ -79,7 +79,9 @@ def process_dataset(files, grouping_col, new_acr=None):
         df_total['nominal_field_size_y_cm'] = np.nan
 
     if new_acr is not None:
-        df_total["charge_prop_dose_nC"] = df_total.sensorcharge_nC - df_total.cerenkovcharge_nC * new_acr
+        df_total["charge_prop_dose_nC"] = (
+            df_total.sensorcharge_nC - df_total.cerenkovcharge_nC * new_acr
+        ) * calibration_factor
 
     # Grouping
     if grouping_col not in df_total.columns:
@@ -166,6 +168,7 @@ with col_global2:
     acr_value = 1.0
     if recalc_acr:
         acr_value = st.number_input('New ACR Value:', min_value=0.000, max_value=2.000, value=1.00, step=0.001, format="%.3f")
+calibration_factor = st.session_state.get("calibration_factor", 1.0)
 
 st.subheader("Measurement Sets")
 
@@ -191,7 +194,12 @@ for idx, dset in enumerate(st.session_state['measurement_sets']):
         # Reference Field Selection for this Set
         if dset['files']:
             full_paths = [os.path.join("Measurements", "OF_tables", f) for f in dset['files']]
-            df_temp, _ = process_dataset(full_paths, grouping_option, acr_value if recalc_acr else None)
+            df_temp, _ = process_dataset(
+                full_paths,
+                grouping_option,
+                acr_value if recalc_acr else None,
+                calibration_factor=calibration_factor,
+            )
 
             if not df_temp.empty:
                 # Create labels for formatting
@@ -247,7 +255,12 @@ for dset in st.session_state['measurement_sets']:
         continue
 
     full_paths = [os.path.join("Measurements", "OF_tables", f) for f in dset['files']]
-    df_res, df_raw = process_dataset(full_paths, grouping_option, acr_value if recalc_acr else None)
+    df_res, df_raw = process_dataset(
+        full_paths,
+        grouping_option,
+        acr_value if recalc_acr else None,
+        calibration_factor=calibration_factor,
+    )
 
     if df_res.empty:
         continue
@@ -428,4 +441,3 @@ if valid_sets_count > 0:
 
 else:
     st.info("Select files above to generate the plot.")
-

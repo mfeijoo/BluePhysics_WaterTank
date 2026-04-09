@@ -78,9 +78,11 @@ dfz = pd.concat([df, dfchz], axis = 1)
 st.dataframe(df)
 
 ACR = st.number_input('ACR value', value = 1.0, format = '%.2f')
+calibration_factor = st.session_state.get("calibration_factor", 1.0)
+st.caption(f"Calibration factor from Settings: {calibration_factor:.3f}")
 dfz['sensorcharge'] = dfz.ch0z * capacitor
 dfz['cerenkovcharge'] = dfz.ch1z * capacitor
-dfz['dose'] = dfz.sensorcharge - dfz.cerenkovcharge * ACR
+dfz['dose'] = (dfz.sensorcharge - dfz.cerenkovcharge * ACR) * calibration_factor
 
 dfz['chunk'] = dfz.Number // (300000/700)
 group = dfz.groupby('chunk')
@@ -172,4 +174,3 @@ if pulseson:
         fig2.add_vline(x=s, line_color='green', opacity = 0.5, line_dash='dash')
         fig2.add_vline(x=f, line_color='red', opacity = 0.5, line_dash='dash')
     st.plotly_chart(fig2)
-

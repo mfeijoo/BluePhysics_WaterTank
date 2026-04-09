@@ -13,6 +13,8 @@ if "app_config" not in st.session_state:
     st.session_state.app_config = load_config()
 if "acr_value" not in st.session_state:
     st.session_state.acr_value = float(st.session_state.app_config.get("acr_value", 1.0))
+if "calibration_factor" not in st.session_state:
+    st.session_state.calibration_factor = float(st.session_state.app_config.get("calibration_factor", 1.0))
 if "rank_value" not in st.session_state:
     st.session_state.rank_value = int(st.session_state.app_config.get("rank_value", 1))
 if "integration_time_us" not in st.session_state:
@@ -34,6 +36,7 @@ if "device_settings_snapshot" not in st.session_state:
 
 def persist_settings(
     acr: float | None = None,
+    calibration_factor: float | None = None,
     rank: int | None = None,
     integration_time_us: int | None = None,
     target_v: float | None = None,
@@ -42,6 +45,8 @@ def persist_settings(
 ) -> None:
     if acr is not None:
         st.session_state.acr_value = float(acr)
+    if calibration_factor is not None:
+        st.session_state.calibration_factor = float(calibration_factor)
     if rank is not None:
         st.session_state.rank_value = int(rank)
     if integration_time_us is not None:
@@ -55,6 +60,7 @@ def persist_settings(
 
     st.session_state.app_config = {
         "acr_value": float(st.session_state.acr_value),
+        "calibration_factor": float(st.session_state.calibration_factor),
         "rank_value": int(st.session_state.rank_value),
         "integration_time_us": int(st.session_state.integration_time_us),
         "regulate_target_v": float(st.session_state.regulate_target_v),
@@ -154,6 +160,14 @@ acr_value = st.number_input(
     min_value=0.0,
     max_value=10.0,
     value=float(st.session_state.acr_value),
+    step=0.001,
+    format="%.3f",
+)
+calibration_factor = st.number_input(
+    "Calibration factor",
+    min_value=0.0,
+    max_value=10.0,
+    value=float(st.session_state.calibration_factor),
     step=0.001,
     format="%.3f",
 )
@@ -318,6 +332,7 @@ st.divider()
 if st.button("Save settings", use_container_width=True):
     persist_settings(
         acr=float(acr_value),
+        calibration_factor=float(calibration_factor),
         rank=int(rank_value),
         integration_time_us=int(integration_time_us),
         target_v=float(regulate_target_v),

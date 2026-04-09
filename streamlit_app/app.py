@@ -16,6 +16,8 @@ if "app_config" not in st.session_state:
 
 if "acr_value" not in st.session_state:
     st.session_state.acr_value = float(st.session_state.app_config.get("acr_value", 1.0))
+if "calibration_factor" not in st.session_state:
+    st.session_state.calibration_factor = float(st.session_state.app_config.get("calibration_factor", 1.0))
 
 if "rank_value" not in st.session_state:
     st.session_state.rank_value = int(st.session_state.app_config.get("rank_value", 1))
