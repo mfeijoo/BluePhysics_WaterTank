@@ -435,14 +435,20 @@ class SerialManager:
 
         lines = self._read_text_lines_until_idle(timeout_s=timeout_s, idle_s=0.2)
         integration_time_us = None
-        pattern = re.compile(r"(-?\d+)\s*us", re.IGNORECASE)
+        patterns = [
+            re.compile(r"integration\s*time\s*\(us\)\s*:\s*(-?\d+)", re.IGNORECASE),
+            re.compile(r"(-?\d+)\s*us", re.IGNORECASE),
+        ]
         for line in lines:
             low = line.lower()
             if "integration" not in low:
                 continue
-            match = pattern.search(line)
-            if match:
-                integration_time_us = int(match.group(1))
+            for pattern in patterns:
+                match = pattern.search(line)
+                if match:
+                    integration_time_us = int(match.group(1))
+                    break
+            if integration_time_us is not None:
                 break
 
         if integration_time_us is None:
