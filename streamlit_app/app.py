@@ -38,6 +38,14 @@ if "device_settings_snapshot" not in st.session_state:
         "last_refresh_ok": False,
         "last_error": None,
     }
+if "cartridge_check" not in st.session_state:
+    st.session_state.cartridge_check = {
+        "checked": False,
+        "ok": False,
+        "temp_c": None,
+        "error": None,
+        "lines": [],
+    }
 
 def render_home() -> None:
     st.title("Blue Physics – Control Suite")

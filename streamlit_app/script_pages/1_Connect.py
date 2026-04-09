@@ -6,6 +6,14 @@ mgr = st.session_state.mgr
 
 if "device_info" not in st.session_state:
     st.session_state.device_info = {"model": None, "firmware_version": None, "raw_lines": []}
+if "cartridge_check" not in st.session_state:
+    st.session_state.cartridge_check = {
+        "checked": False,
+        "ok": False,
+        "temp_c": None,
+        "error": None,
+        "lines": [],
+    }
 
 st.title("1) Connect to Serial")
 
@@ -35,18 +43,47 @@ with c1:
         else:
             st.session_state.device_info = {"model": None, "firmware_version": None, "raw_lines": info.get("raw_lines", [])}
 
-        settings_snapshot = mgr.read_device_settings_snapshot()
-        st.session_state.device_settings_snapshot = {
-            "rank_value": settings_snapshot.get("rank_value"),
-            "integration_time_us": settings_snapshot.get("integration_time_us"),
-            "ps0_voltage_v": settings_snapshot.get("ps0_voltage_v"),
-            "last_refresh_ok": bool(settings_snapshot.get("ok")),
-            "last_error": None if settings_snapshot.get("ok") else "Could not read current settings from device.",
+        temp_result = mgr.read_temperature_bytes(timeout_s=2.0, idle_s=0.25)
+        st.session_state.cartridge_check = {
+            "checked": True,
+            "ok": bool(temp_result.get("ok")),
+            "temp_c": temp_result.get("temp_c"),
+            "error": temp_result.get("error"),
+            "lines": temp_result.get("lines", []),
         }
+
+        if not temp_result.get("ok"):
+            st.warning(
+                "Cartridge check failed. The device is connected, but cartridge response "
+                "was not detected when requesting temperature. Please check cartridge connection."
+            )
+            st.session_state.device_settings_snapshot = {
+                "rank_value": None,
+                "integration_time_us": None,
+                "ps0_voltage_v": None,
+                "last_refresh_ok": False,
+                "last_error": "Skipped reading device settings because cartridge check failed.",
+            }
+        else:
+            settings_snapshot = mgr.read_device_settings_snapshot()
+            st.session_state.device_settings_snapshot = {
+                "rank_value": settings_snapshot.get("rank_value"),
+                "integration_time_us": settings_snapshot.get("integration_time_us"),
+                "ps0_voltage_v": settings_snapshot.get("ps0_voltage_v"),
+                "last_refresh_ok": bool(settings_snapshot.get("ok")),
+                "last_error": None if settings_snapshot.get("ok") else "Could not read current settings from device.",
+            }
 with c2:
     if st.button("Disconnect", use_container_width=True, disabled=not mgr.is_connected()):
         mgr.disconnect()
         st.session_state.device_info = {"model": None, "firmware_version": None, "raw_lines": []}
+        st.session_state.cartridge_check = {
+            "checked": False,
+            "ok": False,
+            "temp_c": None,
+            "error": None,
+            "lines": [],
+        }
         st.session_state.device_settings_snapshot = {
             "rank_value": None,
             "integration_time_us": None,
@@ -66,3 +103,11 @@ if info.get("model") or info.get("firmware_version"):
     model_txt = info.get("model") or "Unknown"
     fw_txt = info.get("firmware_version") or "Unknown"
     st.caption(f"Model: {model_txt}\nFirmware version: {fw_txt}")
+
+cartridge_check = st.session_state.cartridge_check
+if cartridge_check.get("checked"):
+    if cartridge_check.get("ok"):
+        temp_txt = f"{float(cartridge_check.get('temp_c')):.2f} °C"
+        st.success(f"Cartridge detected (initial temperature: {temp_txt}).")
+    else:
+        st.error("Cartridge not detected from initial temperature response.")
