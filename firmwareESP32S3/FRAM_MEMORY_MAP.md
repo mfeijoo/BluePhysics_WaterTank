@@ -40,6 +40,11 @@ Example:
 - `ovread;` → reads and prints decoded voltage
 - `fcheck50;` → reads both bytes and reports whether stored format looks valid
 
+`ovset` accepted numeric formats:
+- `ovset42;` -> stores `42.00`
+- `ovset42.1;` -> stores `42.10`
+- `ovset42.10;` -> stores `42.10`
+
 ## Reserved space (future use)
 
 Addresses `0x0002` and above are currently free and reserved for future cartridge information.

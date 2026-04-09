@@ -354,23 +354,42 @@ static bool framRawReadByte(uint8_t devAddr, uint16_t memAddr, uint8_t &valueOut
   return true;
 }
 
-static bool framStoreOptimalVoltage(float voltage) {
-  if (voltage < 0.0f || voltage > 255.99f) return false;
-
-  uint8_t intPart = (uint8_t)voltage;
-  float decimalFloat = (voltage - (float)intPart) * 100.0f;
-  if (decimalFloat < 0.0f) decimalFloat = 0.0f;
-  uint8_t decimalPart = (uint8_t)lroundf(decimalFloat);
-  if (decimalPart > 99) decimalPart = 99;
-
-  if (!framRawWriteByte(FRAM_SIMPLE_ADDR, FRAM_OPTIMAL_VOLTAGE_INT_ADDR, intPart)) return false;
-  if (!framRawWriteByte(FRAM_SIMPLE_ADDR, FRAM_OPTIMAL_VOLTAGE_DEC_ADDR, decimalPart)) return false;
-  return true;
-}
-
 static bool framReadOptimalVoltageBytes(uint8_t &intPart, uint8_t &decimalPart) {
   if (!framRawReadByte(FRAM_SIMPLE_ADDR, FRAM_OPTIMAL_VOLTAGE_INT_ADDR, intPart)) return false;
   if (!framRawReadByte(FRAM_SIMPLE_ADDR, FRAM_OPTIMAL_VOLTAGE_DEC_ADDR, decimalPart)) return false;
+  return true;
+}
+
+static bool parseVoltageStringToBytes(const char *text, uint8_t &intPartOut, uint8_t &decimalPartOut) {
+  if (text == nullptr || text[0] == 0) return false;
+
+  char *end = nullptr;
+  unsigned long intPartUL = strtoul(text, &end, 10);
+  if (end == text || intPartUL > 255UL) return false;
+
+  uint8_t decimalPart = 0;
+  if (*end == 0) {
+    intPartOut = (uint8_t)intPartUL;
+    decimalPartOut = 0;
+    return true;
+  }
+
+  if (*end != '.') return false;
+  const char *dec = end + 1;
+  if (dec[0] < '0' || dec[0] > '9') return false;
+
+  uint8_t d0 = (uint8_t)(dec[0] - '0');
+  if (dec[1] == 0) {
+    decimalPart = (uint8_t)(d0 * 10); // "42.1" -> 42.10
+  } else {
+    if (dec[1] < '0' || dec[1] > '9') return false;
+    if (dec[2] != 0) return false; // only up to 2 decimals supported
+    uint8_t d1 = (uint8_t)(dec[1] - '0');
+    decimalPart = (uint8_t)(d0 * 10 + d1);
+  }
+
+  intPartOut = (uint8_t)intPartUL;
+  decimalPartOut = decimalPart;
   return true;
 }
 
@@ -1598,30 +1617,31 @@ void loop() {
   // example: ovset42.10;
   if (strncmp(cmd, "ovset", 5) == 0) {
     char *p = cmd + 5;
-    char *end = nullptr;
-    float voltage = strtof(p, &end);
-
-    if (end == p || *end != 0) {
-      Serial.println("Error: malformed ovset. Use ovset<voltage>; (example: ovset42.10;)");
-      return;
-    }
-
-    if (voltage < 0.0f || voltage > 255.99f) {
-      Serial.println("Error: ovset out of range. voltage must be 0.00..255.99 V.");
+    uint8_t reqInt = 0;
+    uint8_t reqDec = 0;
+    if (!parseVoltageStringToBytes(p, reqInt, reqDec)) {
+      Serial.println("Error: malformed ovset. Use ovset<voltage>; (0..255 with 0..2 decimals, e.g. ovset42.10;)");
       return;
     }
 
     Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN, I2C_CLOCK_HZ);
-    if (!framStoreOptimalVoltage(voltage)) {
+    if (!framRawWriteByte(FRAM_SIMPLE_ADDR, FRAM_OPTIMAL_VOLTAGE_INT_ADDR, reqInt) ||
+        !framRawWriteByte(FRAM_SIMPLE_ADDR, FRAM_OPTIMAL_VOLTAGE_DEC_ADDR, reqDec)) {
       Serial.printf("FRAM 0x%02X write failed for optimal voltage.\n", FRAM_SIMPLE_ADDR);
       return;
     }
 
     uint8_t intByte = 0;
     uint8_t decByte = 0;
-    framReadOptimalVoltageBytes(intByte, decByte);
-    Serial.printf("Optimal voltage saved: %u.%02u V -> FRAM [0x%04X]=%u, [0x%04X]=%u\n",
-                  intByte, decByte,
+    if (!framReadOptimalVoltageBytes(intByte, decByte)) {
+      Serial.printf("FRAM 0x%02X verify read failed after ovset.\n", FRAM_SIMPLE_ADDR);
+      return;
+    }
+
+    bool verified = (intByte == reqInt && decByte == reqDec);
+    Serial.printf("Optimal voltage save %s: requested %u.%02u V, stored %u.%02u V -> FRAM [0x%04X]=%u, [0x%04X]=%u\n",
+                  verified ? "OK" : "MISMATCH",
+                  reqInt, reqDec, intByte, decByte,
                   FRAM_OPTIMAL_VOLTAGE_INT_ADDR, intByte,
                   FRAM_OPTIMAL_VOLTAGE_DEC_ADDR, decByte);
     return;

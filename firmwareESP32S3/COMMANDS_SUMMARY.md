@@ -10,7 +10,7 @@ All firmware commands are received over serial and must be terminated with a sem
 | `fram;` | Checks FRAM presence on `0x50` and `0x51`. If library init succeeds, prints selected address + manufacturer/product IDs; if only ACK is seen, it still reports FRAM detected (presence confirmed) and notes IDs are unavailable. |
 | `fram50;` | Simple presence check for the fixed FRAM device at `0x50`. |
 | `fcheck50;` | Reads FRAM `0x50` addresses `0x0000` and `0x0001` (optimal voltage integer + decimal bytes) and reports whether stored format looks valid (`decimal <= 99`). |
-| `ovset<voltage>;` | Stores optimal operation voltage in FRAM `0x50` using two bytes: integer part at `0x0000` and 2-digit decimal part at `0x0001`. Example: `ovset42.10;`. |
+| `ovset<voltage>;` | Stores optimal operation voltage in FRAM `0x50` using two bytes: integer part at `0x0000` and 2-digit decimal part at `0x0001`. Input format supports `0..255` with `0..2` decimal digits (examples: `ovset42;`, `ovset42.1;`, `ovset42.10;`). |
 | `ovread;` | Reads and prints optimal operation voltage from FRAM `0x50` addresses `0x0000` and `0x0001`. |
 | `fw50<mem_addr>,<value>;` | Simple byte write on fixed FRAM `0x50` (`mem_addr` 16-bit, `value` 8-bit). Examples: `fw500,123;`, `fw50256,171;` (hex also accepted, e.g. `fw500x0100,0xAB;`). |
 | `fr50<mem_addr>;` | Simple byte read on fixed FRAM `0x50`. Examples: `fr500;`, `fr50256;` (hex also accepted, e.g. `fr500x0100;`). |
