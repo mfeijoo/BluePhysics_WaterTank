@@ -1083,14 +1083,14 @@ static void detReadAndSendBytesService() {
   now = micros();
   det_bytes_last_us = now;
 
-  digitalWrite(SERIAL_TIMING_PIN, HIGH);
+  //digitalWrite(SERIAL_TIMING_PIN, HIGH);
   sendPktHeader(PKT_STREAM_SAMPLE);
   Serial.write((uint8_t*)&det_bytes_idx, 4);
   uint32_t dt = (uint32_t)(now - det_bytes_t0_us);
   Serial.write((uint8_t*)&dt, 4);
   Serial.write((uint8_t*)&det_ch0, 2);
   Serial.write((uint8_t*)&det_ch1, 2);
-  digitalWrite(SERIAL_TIMING_PIN, LOW);
+  //digitalWrite(SERIAL_TIMING_PIN, LOW);
   det_bytes_idx++;
 }
 
@@ -1133,7 +1133,7 @@ static void detReadAndSendBytesWithTempService() {
   now = micros();
   det_temp_bytes_last_us = now;
 
-  digitalWrite(SERIAL_TIMING_PIN, HIGH);
+  //digitalWrite(SERIAL_TIMING_PIN, HIGH);
   uint32_t temp_start_us = micros();
   uint16_t temp_raw = tempsensor.read16(0x05);
   //uint16_t temp_raw = 32;
@@ -1147,7 +1147,7 @@ static void detReadAndSendBytesWithTempService() {
   Serial.write((uint8_t*)&det_ch1, 2);
   Serial.write((uint8_t*)&temp_raw, 2);
   Serial.write((uint8_t*)&temp_read_us, 4);
-  digitalWrite(SERIAL_TIMING_PIN, LOW);
+  //digitalWrite(SERIAL_TIMING_PIN, LOW);
 
   det_temp_bytes_idx++;
 }
