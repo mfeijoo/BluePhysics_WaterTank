@@ -35,6 +35,8 @@ static uint16_t dark_current_code[2] = {0, 0};
 #define I2C_SCL_PIN 9
 #define I2C_CLOCK_HZ 100000
 #define FRAM_SIMPLE_ADDR MB85RC_DEFAULT_ADDRESS
+#define FRAM_OPTIMAL_VOLTAGE_INT_ADDR 0x0000
+#define FRAM_OPTIMAL_VOLTAGE_DEC_ADDR 0x0001
 #define PSFC 16.1817
 #define PSFCind 0.14022
 //#define PSFC 1
@@ -349,6 +351,26 @@ static bool framRawReadByte(uint8_t devAddr, uint16_t memAddr, uint8_t &valueOut
   if (n != 1 || !Wire.available()) return false;
 
   valueOut = Wire.read();
+  return true;
+}
+
+static bool framStoreOptimalVoltage(float voltage) {
+  if (voltage < 0.0f || voltage > 255.99f) return false;
+
+  uint8_t intPart = (uint8_t)voltage;
+  float decimalFloat = (voltage - (float)intPart) * 100.0f;
+  if (decimalFloat < 0.0f) decimalFloat = 0.0f;
+  uint8_t decimalPart = (uint8_t)lroundf(decimalFloat);
+  if (decimalPart > 99) decimalPart = 99;
+
+  if (!framRawWriteByte(FRAM_SIMPLE_ADDR, FRAM_OPTIMAL_VOLTAGE_INT_ADDR, intPart)) return false;
+  if (!framRawWriteByte(FRAM_SIMPLE_ADDR, FRAM_OPTIMAL_VOLTAGE_DEC_ADDR, decimalPart)) return false;
+  return true;
+}
+
+static bool framReadOptimalVoltageBytes(uint8_t &intPart, uint8_t &decimalPart) {
+  if (!framRawReadByte(FRAM_SIMPLE_ADDR, FRAM_OPTIMAL_VOLTAGE_INT_ADDR, intPart)) return false;
+  if (!framRawReadByte(FRAM_SIMPLE_ADDR, FRAM_OPTIMAL_VOLTAGE_DEC_ADDR, decimalPart)) return false;
   return true;
 }
 
@@ -1546,6 +1568,82 @@ void loop() {
 
     Serial.printf("FRAM 0x%02X write OK: mem 0x%04X <= 0x%02X\n",
                   FRAM_SIMPLE_ADDR, memAddr, value);
+    return;
+  }
+
+  //-----FRAM check for first two bytes (0x0000, 0x0001): fcheck50;
+  // reads integer/decimal bytes used for optimal voltage storage.
+  if (strcmp(cmd, "fcheck50") == 0) {
+    uint8_t intByte = 0;
+    uint8_t decByte = 0;
+
+    Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN, I2C_CLOCK_HZ);
+    if (!framReadOptimalVoltageBytes(intByte, decByte)) {
+      Serial.printf("FRAM 0x%02X check failed while reading 0x%04X/0x%04X.\n",
+                    FRAM_SIMPLE_ADDR, FRAM_OPTIMAL_VOLTAGE_INT_ADDR, FRAM_OPTIMAL_VOLTAGE_DEC_ADDR);
+      return;
+    }
+
+    bool looksValid = (decByte <= 99);
+    Serial.printf("FRAM 0x%02X check: [0x%04X]=0x%02X (%u), [0x%04X]=0x%02X (%u)\n",
+                  FRAM_SIMPLE_ADDR,
+                  FRAM_OPTIMAL_VOLTAGE_INT_ADDR, intByte, intByte,
+                  FRAM_OPTIMAL_VOLTAGE_DEC_ADDR, decByte, decByte);
+    Serial.printf("Stored optimal voltage looks %s (decimal byte must be 0..99).\n",
+                  looksValid ? "VALID" : "INVALID");
+    return;
+  }
+
+  //-----store optimal voltage in FRAM 0x50 addresses 0x0000 and 0x0001: ovset<voltage>;
+  // example: ovset42.10;
+  if (strncmp(cmd, "ovset", 5) == 0) {
+    char *p = cmd + 5;
+    char *end = nullptr;
+    float voltage = strtof(p, &end);
+
+    if (end == p || *end != 0) {
+      Serial.println("Error: malformed ovset. Use ovset<voltage>; (example: ovset42.10;)");
+      return;
+    }
+
+    if (voltage < 0.0f || voltage > 255.99f) {
+      Serial.println("Error: ovset out of range. voltage must be 0.00..255.99 V.");
+      return;
+    }
+
+    Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN, I2C_CLOCK_HZ);
+    if (!framStoreOptimalVoltage(voltage)) {
+      Serial.printf("FRAM 0x%02X write failed for optimal voltage.\n", FRAM_SIMPLE_ADDR);
+      return;
+    }
+
+    uint8_t intByte = 0;
+    uint8_t decByte = 0;
+    framReadOptimalVoltageBytes(intByte, decByte);
+    Serial.printf("Optimal voltage saved: %u.%02u V -> FRAM [0x%04X]=%u, [0x%04X]=%u\n",
+                  intByte, decByte,
+                  FRAM_OPTIMAL_VOLTAGE_INT_ADDR, intByte,
+                  FRAM_OPTIMAL_VOLTAGE_DEC_ADDR, decByte);
+    return;
+  }
+
+  //-----read and print optimal voltage stored in FRAM 0x50: ovread;
+  if (strcmp(cmd, "ovread") == 0) {
+    uint8_t intByte = 0;
+    uint8_t decByte = 0;
+
+    Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN, I2C_CLOCK_HZ);
+    if (!framReadOptimalVoltageBytes(intByte, decByte)) {
+      Serial.printf("FRAM 0x%02X read failed for optimal voltage.\n", FRAM_SIMPLE_ADDR);
+      return;
+    }
+
+    float voltage = (float)intByte + ((float)decByte / 100.0f);
+    Serial.printf("Optimal voltage (FRAM 0x%02X): %u.%02u V (%.2f V)\n",
+                  FRAM_SIMPLE_ADDR, intByte, decByte, voltage);
+    if (decByte > 99) {
+      Serial.println("Warning: decimal byte is outside expected range (0..99).");
+    }
     return;
   }
 
