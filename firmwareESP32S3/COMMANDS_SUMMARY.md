@@ -7,7 +7,7 @@ All firmware commands are received over serial and must be terminated with a sem
 | Command | What it does |
 |---|---|
 | `t;` | Reads the MCP9808 temperature sensor and prints temperature in °C. |
-| `fram;` | Checks FRAM presence on `0x50` and `0x51`. If library init succeeds, prints selected address + manufacturer/product IDs; if only ACK is seen, prints an ACK-detected diagnostic message. |
+| `fram;` | Checks FRAM presence on `0x50` and `0x51`. If library init succeeds, prints selected address + manufacturer/product IDs; if only ACK is seen, it still reports FRAM detected (presence confirmed) and notes IDs are unavailable. |
 | `i2cscan;` | Temporary diagnostic scan of the I2C bus (SDA=8, SCL=9, 100 kHz); prints every detected 7-bit address (useful to verify FRAM at `0x50`). |
 | `info;` | Prints device model and firmware version. |
 | `eh0;` | Sets error reporting to binary packet mode. |
