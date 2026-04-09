@@ -168,17 +168,21 @@ class SerialManager:
         }
 
 
-    def start_rs_capture(self):
-        """Start byte stream capture using rs; and pause background RX parsing."""
+    def start_rs_capture(self, command: str = "rs;"):
+        """Start byte stream capture using a stream command and pause background RX parsing."""
         if not self.is_connected():
             return {"ok": False, "error": "Not connected."}
         if self.rs_capture_active:
             return {"ok": False, "error": "Capture already active."}
 
+        cmd = (command or "rs;").strip()
+        if not cmd.endswith(";"):
+            cmd = f"{cmd};"
+
         with self.lock:
             self.ser.reset_input_buffer()
             self.ser.reset_output_buffer()
-            self.ser.write(b"rs;")
+            self.ser.write(cmd.encode("ascii", errors="ignore"))
             self.ser.flush()
 
         self.rs_capture_stop_evt.clear()
