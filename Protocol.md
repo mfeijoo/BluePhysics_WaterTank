@@ -32,6 +32,8 @@ ASCII command string terminated by semicolon:
 - `sdc;`
 - `sdc10;`
 - `sdc20;`
+- `sdcv-10.2,25;`
+- `sdcstop;`
 - `M10,25.5,-3;`
 - `S10,25.5,-3;`
 - `Q10,25.5,-3,2000;`
@@ -367,6 +369,7 @@ Behavior:
 - On malformed `sdc` payload, firmware sends ERR with `cmd_id='s'`, `err_code=0x01`.
 - On out-of-range `step` (`<1` or `>100`), firmware sends ERR with `cmd_id='s'`, `err_code=0x02`.
 - On runtime failure (I2C error, invalid measurement, or max code reached before target), firmware sends ERR with `cmd_id='s'`, `err_code=0x03`.
+- If `sdcstop;` is received while `sdc...;` or `sdcv...;` is running, routine cancels and returns ERR with `cmd_id='s'`, `err_code=0x08`.
 - During the loop firmware prints human-readable status lines with: current DAC `code`, active-channel voltage, and both channel voltage/count averages.
 
 ## 7.1) Binary pcnt32 limits packet (`l;`)
