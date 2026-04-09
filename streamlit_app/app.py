@@ -59,6 +59,7 @@ navigation = st.navigation(
             st.Page(PAGES_DIR / "page_shots_calc_of.py", title="Calc OF", icon=":material/timeline:"),
             st.Page(PAGES_DIR / "page_shots_calc_acr.py", title="Calc ACR", icon=":material/monitoring:"),
             st.Page(PAGES_DIR / "page_output_factors.py", title="Output Factors", icon=":material/table_chart:"),
+            st.Page(PAGES_DIR / "page_flash.py", title="Flash", icon=":material/bolt:"),
         ],
         #"Shot Processing": [
          #   st.Page(PAGES_DIR / "page_analyze_shots.py", title="Analyze Shots", icon=":material/analytics:"),
