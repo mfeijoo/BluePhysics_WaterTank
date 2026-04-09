@@ -31,6 +31,9 @@ static const uint16_t POT_MAX = 1023;
 static const uint8_t AD5675_ADDR = 0x0F;
 static const uint8_t AD5675_CMD_WRITE_UPDATE = 0x3;
 static uint16_t dark_current_code[2] = {0, 0};
+#define I2C_SDA_PIN 8
+#define I2C_SCL_PIN 9
+#define I2C_CLOCK_HZ 100000
 #define PSFC 16.1817
 #define PSFCind 0.14022
 //#define PSFC 1
@@ -1382,7 +1385,8 @@ void setup() {
     detWriteProgramRegister(reg, 0x00);
   }
 
-  Wire.begin();
+  // Keep I2C configuration aligned with test_sketch_Aleix_Cartucho.
+  Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN, I2C_CLOCK_HZ);
 
   fram_detected = fram.begin(MB85RC_DEFAULT_ADDRESS, &Wire);
 
@@ -1390,7 +1394,7 @@ void setup() {
   ADS.setGain(0);
 
   //Temperature sensor setup
-  tempsensor.begin(0x18);
+  tempsensor.begin(0x18, &Wire);
   tempsensor.setResolution(3); //this line on
   // Mode Resolution SampleTime
   //  0    0.5°C       30 ms
