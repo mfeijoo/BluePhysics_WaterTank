@@ -140,9 +140,15 @@ static const uint32_t resettimemicros = 10;
 static const char DEVICE_MODEL[] = "model11.2";
 static const char DEVICE_FIRMWARE_VERSION[] = "model11.2.01";
 
-// ADS8688A in model11 uses SPI mode 1 @ 17 MHz.
-// Keep same proven settings while bringing detector code here.
-static SPISettings detSPI(17000000, MSBFIRST, SPI_MODE1);
+// ADS8688A access aligned with test_sketch_Aleix_Cartucho/SPIADC2:
+// - SPI mode 0
+// - MAN_Ch_n commands (0xC000 for CH0, 0xC400 for CH1)
+// - ±2.5*Vref range setup through program registers
+static SPISettings detSPI(16000000, MSBFIRST, SPI_MODE0);
+static const float ADS8688A_VREF = 4.096f;
+static const uint16_t ADS8688A_CMD_MAN_CH0 = 0xC000;
+static const uint16_t ADS8688A_CMD_MAN_CH1 = 0xC400;
+static uint8_t det_current_channel = 0xFF;
 
 // Raw detector readings (2 channels like your old code)
 static volatile uint16_t det_ch0 = 0;
@@ -717,31 +723,47 @@ static void printDeviceInfoHuman() {
   Serial.println(DEVICE_FIRMWARE_VERSION);
 }
 
-static void detReadChannels() {
+static void detWriteProgramRegister(uint8_t addr, uint8_t data) {
+  // 16-bit command = [ADDR(7b) | WR(1b=1) | DATA(8b)] + 8 extra clocks
+  // (same sequence used in test sketch SPIADC2 driver)
+  uint16_t cmd = (static_cast<uint16_t>(addr) << 9) | (1u << 8) | data;
+
   SPI.beginTransaction(detSPI);
-
-  // ADS8688A manual channel-select command pattern copied from model11:
-  // write command for channel N, then next transfer returns previous result.
-  // First read after startup may be stale; measurement loop continuously updates.
   digitalWrite(CS_ADQ, LOW);
-  SPI.transfer16(0xC000);      // select CH0
-  SPI.transfer16(0);
+  SPI.transfer16(cmd);
+  SPI.transfer(0x00);
   digitalWrite(CS_ADQ, HIGH);
+  SPI.endTransaction();
+}
 
+static uint16_t detReadRawChannel(uint8_t channel) {
+  uint16_t cmd = (channel == 1) ? ADS8688A_CMD_MAN_CH1 : ADS8688A_CMD_MAN_CH0;
+
+  // ADS8688A has one-frame pipeline in MAN_Ch_n mode:
+  // on channel change, send one service frame and discard the reading.
+  if (det_current_channel != channel) {
+    SPI.beginTransaction(detSPI);
+    digitalWrite(CS_ADQ, LOW);
+    SPI.transfer16(cmd);
+    SPI.transfer16(0x0000);
+    digitalWrite(CS_ADQ, HIGH);
+    SPI.endTransaction();
+    det_current_channel = channel;
+  }
+
+  SPI.beginTransaction(detSPI);
   digitalWrite(CS_ADQ, LOW);
-  SPI.transfer16(0xC400);      // select CH1
-  uint16_t v0 = SPI.transfer16(0); // returns CH0
+  SPI.transfer16(cmd);
+  uint16_t raw = SPI.transfer16(0x0000);
   digitalWrite(CS_ADQ, HIGH);
-
-  digitalWrite(CS_ADQ, LOW);
-  SPI.transfer16(0xC000);      // re-select CH0 for next cycle
-  uint16_t v1 = SPI.transfer16(0); // returns CH1
-  digitalWrite(CS_ADQ, HIGH);
-
   SPI.endTransaction();
 
-  det_ch0 = v0;
-  det_ch1 = v1;
+  return raw;
+}
+
+static void detReadChannels() {
+  det_ch0 = detReadRawChannel(0);
+  det_ch1 = detReadRawChannel(1);
 }
 
 static void setPot(uint16_t value) {
@@ -787,7 +809,11 @@ static void detReadOnce() {
 }
 
 static float detCountsToVolts(float counts) {
-  return -((counts * 24.0f) / 65535.0f) + 12.0f;
+  // Same conversion used in test_sketch_Aleix_Cartucho/SPIADC2.cpp:
+  // V = (code - 32768) * (FSR / 65536), where FSR = 5 * Vref (±2.5*Vref)
+  // Sign inverted so detector light pulses are reported as positive voltage.
+  const float fsr = 5.0f * ADS8688A_VREF;
+  return -((counts - 32768.0f) * (fsr / 65536.0f));
 }
 
 static float detReadAverageAndPrintHuman(uint8_t channel, uint32_t sampleCount, float *averageCountsOut, bool printHuman) {
@@ -1343,51 +1369,11 @@ void setup() {
   // SPI
   SPI.begin(DET_SCK, DET_MISO, DET_MOSI);
 
-  //Use this for ADC ADS8688
-  //Set ADC range of all channels to +-2.5 * Vref
-  SPI.beginTransaction(SPISettings(17000000, MSBFIRST, SPI_MODE1));
-  //ch0
-  digitalWrite(CS_ADQ, LOW);
-  SPI.transfer(0x05 << 1 | 1);
-  SPI.transfer16(0x0000);
-  digitalWrite(CS_ADQ, HIGH);
-  //ch1
-  digitalWrite(CS_ADQ, LOW);
-  SPI.transfer(0x06 << 1 | 1);
-  SPI.transfer16(0x0000);
-  digitalWrite(CS_ADQ, HIGH);
-  //ch2
-  digitalWrite(CS_ADQ, LOW);
-  SPI.transfer(0x07 << 1 | 1);
-  SPI.transfer16(0x0000);
-  digitalWrite(CS_ADQ, HIGH);
-  //ch3
-  digitalWrite(CS_ADQ, LOW);
-  SPI.transfer(0x08 << 1 | 1);
-  SPI.transfer16(0x0000);
-  digitalWrite(CS_ADQ, HIGH);
-  //ch4
-  digitalWrite(CS_ADQ, LOW);
-  SPI.transfer(0x09 << 1 | 1);
-  SPI.transfer16(0x0000);
-  digitalWrite(CS_ADQ, HIGH);
-  //ch5
-  digitalWrite(CS_ADQ, LOW);
-  SPI.transfer(0x0A << 1 | 1);
-  SPI.transfer16(0x0000);
-  digitalWrite(CS_ADQ, HIGH);
-  //ch6
-  digitalWrite(CS_ADQ, LOW);
-  SPI.transfer(0x0B << 1 | 1);
-  SPI.transfer16(0x0000);
-  digitalWrite(CS_ADQ, HIGH);
-  //ch7
-  digitalWrite(CS_ADQ, LOW);
-  SPI.transfer(0x0C << 1 | 1);
-  SPI.transfer16(0x0000);
-  digitalWrite(CS_ADQ, HIGH);
-
-  SPI.endTransaction();
+  // ADS8688A range setup copied from test sketch approach:
+  // Range_CHn register 0x00 => ±2.5 * Vref (max bipolar range).
+  for (uint8_t reg = 0x05; reg <= 0x0C; ++reg) {
+    detWriteProgramRegister(reg, 0x00);
+  }
 
   Wire.begin();
   FramStartupStatus fram_status = detectFramStatus();
@@ -1665,7 +1651,8 @@ void loop() {
       }
     }
 
-    // Project formula: V = -((counts * 24.0) / 65535.0) + 12.0
+    // Conversion follows test-sketch scaling, with inverted sign:
+    // V = -((code - 32768) * ((5 * Vref) / 65536)), with Vref=4.096V.
     // Valid negative detector target range requested by protocol.
     if (targetVolts < -10.5f || targetVolts > 0.0f) {
       sendErr('s', 0x05);
