@@ -34,6 +34,7 @@ static uint16_t dark_current_code[2] = {0, 0};
 #define I2C_SDA_PIN 8
 #define I2C_SCL_PIN 9
 #define I2C_CLOCK_HZ 100000
+#define FRAM_SIMPLE_ADDR MB85RC_DEFAULT_ADDRESS
 #define PSFC 16.1817
 #define PSFCind 0.14022
 //#define PSFC 1
@@ -1496,6 +1497,86 @@ void loop() {
     } else {
       Serial.println("FRAM not detected.");
     }
+    return;
+  }
+
+  //-----simple FRAM presence check on fixed device 0x50: fram50;
+  if (strcmp(cmd, "fram50") == 0) {
+    Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN, I2C_CLOCK_HZ);
+    if (i2cDevicePresent(FRAM_SIMPLE_ADDR)) {
+      Serial.printf("FRAM 0x%02X detected.\n", FRAM_SIMPLE_ADDR);
+    } else {
+      Serial.printf("FRAM 0x%02X not detected.\n", FRAM_SIMPLE_ADDR);
+    }
+    return;
+  }
+
+  //-----simple FRAM write on fixed device 0x50: fw50<mem_addr>,<value>;
+  // examples: fw500,123;  fw50256,171;  (hex accepted too, e.g. fw500x0100,0xAB;)
+  if (strncmp(cmd, "fw50", 4) == 0) {
+    char *p = cmd + 4;
+    char *end = nullptr;
+
+    unsigned long memAddrUL = strtoul(p, &end, 0);
+    if (end == p || *end != ',') {
+      Serial.println("Error: malformed fw50. Use fw50<mem_addr>,<value>;");
+      return;
+    }
+
+    p = end + 1;
+    unsigned long valueUL = strtoul(p, &end, 0);
+    if (end == p || *end != 0) {
+      Serial.println("Error: malformed fw50. Use fw50<mem_addr>,<value>;");
+      return;
+    }
+
+    if (memAddrUL > 0xFFFF || valueUL > 0xFF) {
+      Serial.println("Error: fw50 out of range. mem_addr<=0xFFFF, value<=0xFF.");
+      return;
+    }
+
+    uint16_t memAddr = (uint16_t)memAddrUL;
+    uint8_t value = (uint8_t)valueUL;
+
+    Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN, I2C_CLOCK_HZ);
+    if (!framRawWriteByte(FRAM_SIMPLE_ADDR, memAddr, value)) {
+      Serial.printf("FRAM 0x%02X write failed at mem 0x%04X\n", FRAM_SIMPLE_ADDR, memAddr);
+      return;
+    }
+
+    Serial.printf("FRAM 0x%02X write OK: mem 0x%04X <= 0x%02X\n",
+                  FRAM_SIMPLE_ADDR, memAddr, value);
+    return;
+  }
+
+  //-----simple FRAM read on fixed device 0x50: fr50<mem_addr>;
+  // examples: fr500;  fr50256;  (hex accepted too, e.g. fr500x0100;)
+  if (strncmp(cmd, "fr50", 4) == 0) {
+    char *p = cmd + 4;
+    char *end = nullptr;
+
+    unsigned long memAddrUL = strtoul(p, &end, 0);
+    if (end == p || *end != 0) {
+      Serial.println("Error: malformed fr50. Use fr50<mem_addr>;");
+      return;
+    }
+
+    if (memAddrUL > 0xFFFF) {
+      Serial.println("Error: fr50 out of range. mem_addr<=0xFFFF.");
+      return;
+    }
+
+    uint16_t memAddr = (uint16_t)memAddrUL;
+    uint8_t value = 0;
+
+    Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN, I2C_CLOCK_HZ);
+    if (!framRawReadByte(FRAM_SIMPLE_ADDR, memAddr, value)) {
+      Serial.printf("FRAM 0x%02X read failed at mem 0x%04X\n", FRAM_SIMPLE_ADDR, memAddr);
+      return;
+    }
+
+    Serial.printf("FRAM 0x%02X read OK: mem 0x%04X => 0x%02X (%u)\n",
+                  FRAM_SIMPLE_ADDR, memAddr, value, value);
     return;
   }
 
