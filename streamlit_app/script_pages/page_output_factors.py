@@ -83,7 +83,7 @@ with cols[2]:
             df = df_rawdata.loc[:, ['idx', 'dt_s', 'ch0_V', 'ch1_V']]
             df.columns = ['Number', 'Time', 'ch0', 'ch1']
             current_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-            integration_value = df_rawdata["dt_us"].diff()
+            integration_value = df_rawdata["dt_us"].diff().mean()
             st.session_state.integration_time = integration_value
 
             header = f"""Output Factor
@@ -188,7 +188,7 @@ def read_dataframe(file):
             break
     #then read the data frame
     df = pd.read_csv(file, skiprows = lines_to_skip)
-    return df, capacitor, int(integration_time), acr_used
+    return df, capacitor, float(integration_time), acr_used
 
 list_original_files = glob(os.path.join(measurements_folder, "*.csv"))
 # Sort files by date, newest first

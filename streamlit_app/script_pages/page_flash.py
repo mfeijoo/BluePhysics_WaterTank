@@ -201,7 +201,7 @@ def read_dataframe(file):
             break
     #then read the data frame
     df = pd.read_csv(file, skiprows = lines_to_skip)
-    return df, capacitor, int(integration_time), acr_used
+    return df, capacitor, float(integration_time), acr_used
 
 list_original_files = glob(os.path.join(measurements_folder, "*.csv"))
 # Sort files by date, newest first

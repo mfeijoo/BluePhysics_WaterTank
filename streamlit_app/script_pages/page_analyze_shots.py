@@ -66,7 +66,7 @@ def read_dataframe(file):
             break
     #then read the data frame
     df = pd.read_csv(file, skiprows = lines_to_skip)
-    return df, capacitor, int(integration_time)
+    return df, capacitor, float(integration_time)
 
 dforig, capacitor, inegration_time_us = read_dataframe(os.path.join("Measurements", "Shots", filenow))
 # dforig["dt_s"] = dforig.df_us / 1000000
