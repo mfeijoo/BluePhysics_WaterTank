@@ -519,10 +519,15 @@ static uint32_t det_pulse_idx = 0;
 static uint32_t det_pulse_count = 0;
 static uint32_t det_pulse_coincide_count = 0;
 static bool det_pulse_prev_above_threshold = false;
+static bool det_pulse_current_marked_coincide = false;
 static float det_pulse_threshold_v = 0.0f;
 static float det_pulse_acr = 1.0f;
 static float det_pulse_cf = 1.0f;
 static double det_pulse_accumulated_dose = 0.0;
+static bool det_pulse_target_mode = false;
+static uint32_t det_pulse_target_count = 0;
+static double det_pulse_target_dose = 0.0;
+static bool det_pulse_target_reached = false;
 static bool det_temp_bytes_streaming = false;
 static uint32_t det_temp_bytes_t0_us = 0;
 static uint32_t det_temp_bytes_last_us = 0;
@@ -1162,10 +1167,15 @@ static void detReadAndCountPulsesStart(float thresholdVolts, float acr, float cf
   det_pulse_count = 0;
   det_pulse_coincide_count = 0;
   det_pulse_prev_above_threshold = false;
+  det_pulse_current_marked_coincide = false;
   det_pulse_threshold_v = thresholdVolts;
   det_pulse_acr = acr;
   det_pulse_cf = cf;
   det_pulse_accumulated_dose = 0.0;
+  det_pulse_target_mode = false;
+  det_pulse_target_count = 0;
+  det_pulse_target_dose = 0.0;
+  det_pulse_target_reached = false;
   det_pulse_count_streaming = true;
   det_bytes_streaming = false;
   det_human_streaming = false;
@@ -1183,6 +1193,26 @@ static void detReadAndCountPulsesStart(float thresholdVolts, float acr, float cf
   Serial.print(det_pulse_acr, 6);
   Serial.print(", CF=");
   Serial.println(det_pulse_cf, 6);
+}
+
+static void detReadAndCountPulsesWithTargetsStart(
+  float thresholdVolts,
+  float acr,
+  float cf,
+  uint32_t targetPulses,
+  float targetDose
+) {
+  detReadAndCountPulsesStart(thresholdVolts, acr, cf);
+  det_pulse_target_mode = true;
+  det_pulse_target_count = targetPulses;
+  det_pulse_target_dose = (double)targetDose;
+  det_pulse_target_reached = false;
+  digitalWrite(SERIAL_TIMING_PIN, LOW);
+
+  Serial.print("Target mode enabled. target_pulses=");
+  Serial.print(det_pulse_target_count);
+  Serial.print(", target_dose=");
+  Serial.println((float)det_pulse_target_dose, 6);
 }
 
 static void detReadAndCountPulsesStopAndPrint() {
@@ -1226,10 +1256,25 @@ static void detReadAndCountPulsesService() {
   bool aboveThreshold = (det_ch0_volts > det_pulse_threshold_v);
   if (aboveThreshold && !det_pulse_prev_above_threshold) {
     det_pulse_count++;
+    det_pulse_current_marked_coincide = false;
   } else if (aboveThreshold && det_pulse_prev_above_threshold) {
-    det_pulse_coincide_count++;
+    if (!det_pulse_current_marked_coincide) {
+      det_pulse_coincide_count++;
+      det_pulse_current_marked_coincide = true;
+    }
+  } else if (!aboveThreshold) {
+    det_pulse_current_marked_coincide = false;
   }
   det_pulse_prev_above_threshold = aboveThreshold;
+
+  if (det_pulse_target_mode && !det_pulse_target_reached) {
+    if (det_pulse_count >= det_pulse_target_count ||
+        det_pulse_accumulated_dose >= det_pulse_target_dose) {
+      det_pulse_target_reached = true;
+      digitalWrite(SERIAL_TIMING_PIN, HIGH);
+      Serial.println("Target reached: GPIO21 set HIGH");
+    }
+  }
 }
 
 static void detReadAndSendBytes(uint32_t N) {
@@ -1871,7 +1916,7 @@ void loop() {
   //     rsp[<threshold>[,<ACR>[,<CF>]]]; ... re;
   //     defaults: threshold=-9.0, ACR=1.0, CF=1.0
   //     examples: rsp; / rsp-9.2; / rsp-9.2,1.15,0.73; / rsp,1.15,0.73;
-  if (strncmp(cmd, "rsp", 3) == 0) {
+  if (strncmp(cmd, "rsp", 3) == 0 && strncmp(cmd, "rspt", 4) != 0) {
     float thresholdV = -9.0f;
     float acr = 1.0f;
     float cf = 1.0f;
@@ -1935,6 +1980,88 @@ void loop() {
     }
 
     detReadAndCountPulsesStart(thresholdV, acr, cf);
+    return;
+  }
+
+  //-----pulse-count detector mode with thresholds and targets:
+  //     rspt<targetPulses>,<targetDose>;
+  //     rspt<threshold>,<targetPulses>,<targetDose>;
+  //     rspt<threshold>,<ACR>,<targetPulses>,<targetDose>;
+  //     rspt<threshold>,<ACR>,<CF>,<targetPulses>,<targetDose>;
+  if (strncmp(cmd, "rspt", 4) == 0) {
+    float thresholdV = -9.0f;
+    float acr = 1.0f;
+    float cf = 1.0f;
+    uint32_t targetPulses = 0;
+    float targetDose = 0.0f;
+
+    char buf[96];
+    strncpy(buf, cmd + 4, sizeof(buf) - 1);
+    buf[sizeof(buf) - 1] = 0;
+
+    char *tokens[5] = {0};
+    uint8_t tokenCount = 0;
+    char *saveptr = nullptr;
+    char *tok = strtok_r(buf, ",", &saveptr);
+    while (tok != nullptr && tokenCount < 5) {
+      tokens[tokenCount++] = tok;
+      tok = strtok_r(nullptr, ",", &saveptr);
+    }
+
+    if (tokenCount < 2 || tokenCount > 5 || tok != nullptr) {
+      Serial.println("Error: malformed rspt command. Use rspt[<threshold>[,<ACR>[,<CF>]]],<targetPulses>,<targetDose>;");
+      return;
+    }
+
+    uint8_t shift = (uint8_t)(tokenCount - 2);
+
+    char *end = nullptr;
+    if (shift >= 1) {
+      thresholdV = strtof(tokens[0], &end);
+      if (end == tokens[0] || *end != 0) {
+        Serial.println("Error: malformed rspt command. Invalid threshold value.");
+        return;
+      }
+    }
+    if (shift >= 2) {
+      acr = strtof(tokens[1], &end);
+      if (end == tokens[1] || *end != 0) {
+        Serial.println("Error: malformed rspt command. Invalid ACR value.");
+        return;
+      }
+    }
+    if (shift >= 3) {
+      cf = strtof(tokens[2], &end);
+      if (end == tokens[2] || *end != 0) {
+        Serial.println("Error: malformed rspt command. Invalid CF value.");
+        return;
+      }
+    }
+
+    const char *pulseToken = tokens[shift];
+    if (*pulseToken == 0) {
+      Serial.println("Error: malformed rspt command. targetPulses must be an integer > 0.");
+      return;
+    }
+    for (const char *c = pulseToken; *c != 0; ++c) {
+      if (*c < '0' || *c > '9') {
+        Serial.println("Error: malformed rspt command. targetPulses must be an integer > 0.");
+        return;
+      }
+    }
+    targetPulses = (uint32_t)strtoul(pulseToken, &end, 10);
+    if (end == pulseToken || *end != 0 || targetPulses == 0) {
+      Serial.println("Error: malformed rspt command. targetPulses must be an integer > 0.");
+      return;
+    }
+
+    targetDose = strtof(tokens[shift + 1], &end);
+    if (end == tokens[shift + 1] || *end != 0) {
+      Serial.println("Error: malformed rspt command. targetDose must be a float.");
+      return;
+    }
+
+    detReadAndCountPulsesWithTargetsStart(thresholdV, acr, cf, targetPulses, targetDose);
     return;
   }
 
