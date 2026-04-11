@@ -1916,7 +1916,7 @@ void loop() {
   //     rsp[<threshold>[,<ACR>[,<CF>]]]; ... re;
   //     defaults: threshold=-9.0, ACR=1.0, CF=1.0
   //     examples: rsp; / rsp-9.2; / rsp-9.2,1.15,0.73; / rsp,1.15,0.73;
-  if (strncmp(cmd, "rsp", 3) == 0) {
+  if (strncmp(cmd, "rsp", 3) == 0 && strncmp(cmd, "rspt", 4) != 0) {
     float thresholdV = -9.0f;
     float acr = 1.0f;
     float cf = 1.0f;
