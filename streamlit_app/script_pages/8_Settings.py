@@ -283,7 +283,8 @@ if st.button("Apply regulate to device", use_container_width=True, disabled=not 
 
             time.sleep(0.1)
 
-if st.button("Apply dark current to device", use_container_width=True, disabled=not mgr.is_connected()):
+dc_apply_col, dc_stop_col = st.columns(2)
+if dc_apply_col.button("Apply dark current to device", use_container_width=True, disabled=not mgr.is_connected()):
     status = st.empty()
     live_status = st.empty()
     progress_bar = st.progress(0.0, text="Running dark current routine...")
@@ -327,6 +328,13 @@ if st.button("Apply dark current to device", use_container_width=True, disabled=
                 break
 
             time.sleep(0.1)
+
+if dc_stop_col.button("Stop dark current routine", use_container_width=True, disabled=not mgr.is_connected()):
+    stop_result = mgr.stop_set_dark_current()
+    if stop_result.get("ok"):
+        st.info("Stop command sent: sdcstop;")
+    else:
+        st.error(stop_result.get("error", "Failed to send dark current stop command."))
 
 st.divider()
 if st.button("Save settings", use_container_width=True):

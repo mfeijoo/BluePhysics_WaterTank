@@ -808,3 +808,13 @@ class SerialManager:
             "progress": list(self._dark_current_progress),
             "progress_ratio": progress_ratio,
         }
+
+    def stop_set_dark_current(self):
+        if not self.is_connected():
+            return {"ok": False, "error": "Not connected."}
+
+        with self.lock:
+            self.ser.write(b"sdcstop;")
+            self.ser.flush()
+
+        return {"ok": True}
