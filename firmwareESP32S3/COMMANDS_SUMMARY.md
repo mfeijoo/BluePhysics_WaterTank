@@ -48,6 +48,9 @@ All firmware commands are received over serial and must be terminated with a sem
 | `start;` | Starts continuous human-readable detector stream (`idx, dt_us, ch0, ch1`). |
 | `stop;` | Stops continuous human-readable detector stream. |
 | `rs;` | Starts continuous binary detector stream. |
+| `1;` | While `rs;` streaming is active, stores current stream `dt_us` as `start_scan_time` in memory only (no serial print). |
+| `2;` | While `rs;` streaming is active, stores current stream `dt_us` as `end_scan_time` in memory only (no serial print). |
+| `3;` | Prints stored `start_scan_time` and `end_scan_time` in human-readable format only when `rs;` streaming is stopped (`re;`). |
 | `re;` | Stops continuous binary detector stream. |
 | `pin21H;` | Forces GPIO21 (`SERIAL_TIMING_PIN`) to HIGH for debug/oscilloscope checks. |
 | `pin21L;` | Forces GPIO21 (`SERIAL_TIMING_PIN`) to LOW for debug/oscilloscope checks. |
