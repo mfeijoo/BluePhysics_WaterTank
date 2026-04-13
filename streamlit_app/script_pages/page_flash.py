@@ -79,11 +79,11 @@ st.caption(
 signal_cols = st.columns(2)
 with signal_cols[0]:
     if st.button("Set Flash Signal HIGH", disabled=not connected):
-        mgr.send_cmd("pin21H;")
+        mgr.send_cmd("pin21L;")
         st.success("Flash signal set to HIGH.")
 with signal_cols[1]:
     if st.button("Set Flash Signal LOW", disabled=not connected):
-        mgr.send_cmd("pin21L;")
+        mgr.send_cmd("pin21H;")
         st.success("Flash signal set to LOW.")
 
 cols = st.columns([3, 3, 3, 1], vertical_alignment="center")
