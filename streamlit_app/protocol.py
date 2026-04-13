@@ -3,8 +3,9 @@ import struct
 from dataclasses import dataclass
 
 def counts_to_volts(counts: int) -> float:
+    vref = 4.096
     # model11.ino mapping
-    return - (float(counts) * 24.0 / 65535.0) + 12.0
+    return - ((counts - 32768) * ((5 * vref) / 65536))
 
 
 
