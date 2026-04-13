@@ -36,6 +36,9 @@ The system supports the following operations (firmware + app):
 - Data streamed to Python app every ~300 ms
 - Start/Stop controlled by user
 - No RAM overflow (streamed live)
+- During `rs;` streaming, `1;` stores current `dt_us` as `start_scan_time` in memory only (no serial print)
+- During `rs;` streaming, `2;` stores current `dt_us` as `end_scan_time` in memory only (no serial print)
+- `3;` prints stored `start_scan_time` and `end_scan_time` in human-readable format only after `re;` (when streaming is stopped)
 
 ## 8. Adjustable Integration Time
 - 700 µs (default)
