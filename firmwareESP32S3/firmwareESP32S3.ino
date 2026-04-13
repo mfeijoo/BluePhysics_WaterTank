@@ -534,6 +534,10 @@ static bool det_temp_bytes_streaming = false;
 static uint32_t det_temp_bytes_t0_us = 0;
 static uint32_t det_temp_bytes_last_us = 0;
 static uint32_t det_temp_bytes_idx = 0;
+static uint32_t start_scan_time_us = 0;
+static uint32_t end_scan_time_us = 0;
+static bool start_scan_time_valid = false;
+static bool end_scan_time_valid = false;
 static const uint8_t PKT_STREAM_START = 0x32;
 static const uint8_t PKT_STREAM_SAMPLE = 0x33;
 static const uint8_t PKT_STREAM_STOP = 0x34;
@@ -717,6 +721,20 @@ static void printDeviceInfoHuman() {
   Serial.println(DEVICE_MODEL);
   Serial.print("Firmware version: ");
   Serial.println(DEVICE_FIRMWARE_VERSION);
+}
+
+static void printScanTimeHuman(const char *label, uint32_t timeUs, bool valid) {
+  Serial.print(label);
+  Serial.print(": ");
+  if (!valid) {
+    Serial.println("not set");
+    return;
+  }
+
+  Serial.print(timeUs);
+  Serial.print(" us (");
+  Serial.print((float)timeUs / 1000000.0f, 6);
+  Serial.println(" s)");
 }
 
 static void detWriteProgramRegister(uint8_t addr, uint8_t data) {
@@ -2069,6 +2087,30 @@ void loop() {
 
   if (strcmp(cmd, "rs") == 0) {
     detReadAndSendBytesStart();
+    return;
+  }
+
+  //-----mark scan times during rs; streaming
+  if (strcmp(cmd, "1") == 0) {
+    if (det_bytes_streaming) {
+      start_scan_time_us = (uint32_t)(micros() - det_bytes_t0_us);
+      start_scan_time_valid = true;
+    }
+    return;
+  }
+
+  if (strcmp(cmd, "2") == 0) {
+    if (det_bytes_streaming) {
+      end_scan_time_us = (uint32_t)(micros() - det_bytes_t0_us);
+      end_scan_time_valid = true;
+    }
+    return;
+  }
+
+  if (strcmp(cmd, "3") == 0) {
+    if (det_bytes_streaming) return;
+    printScanTimeHuman("start_scan_time", start_scan_time_us, start_scan_time_valid);
+    printScanTimeHuman("end_scan_time", end_scan_time_us, end_scan_time_valid);
     return;
   }
 

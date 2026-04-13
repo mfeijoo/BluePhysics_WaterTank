@@ -25,6 +25,9 @@ ASCII command string terminated by semicolon:
 - `stepdelays800,800;`
 - `i700;`
 - `readbytes100;`
+- `1;`
+- `2;`
+- `3;`
 - `avgdet0;`
 - `avgdet1,250;`
 - `sdc;`
@@ -198,6 +201,22 @@ AA 55 34
 
 - `65` is ASCII `'e'` in the ACK packet.
 - `total_samples` is the number of `0x33` sample packets sent in that streaming session.
+
+### Stream scan markers (`1;`, `2;`, `3;`)
+
+These commands are intended to be used with `rs;` byte-streaming:
+
+- `1;` stores the current stream `dt_us` as `start_scan_time`.
+- `2;` stores the current stream `dt_us` as `end_scan_time`.
+- `3;` prints both stored values in human-readable format:
+  - `<value> us (<value_in_seconds> s)` when set.
+  - `not set` if not captured yet.
+
+Notes:
+- `1;` and `2;` are valid only while `rs;` streaming is active.
+- `1;` and `2;` do not print any serial output; they only store values in memory.
+- `3;` prints scan-marker values only when `rs;` streaming is not active (after `re;`).
+- Stored values remain available after `re;` until overwritten by a new `1;`/`2;` or firmware reset.
 
 
 - `start;` / `stop;` remain available for human-readable troubleshooting output over `Serial.print(...)`.
