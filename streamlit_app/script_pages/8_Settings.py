@@ -180,7 +180,7 @@ rank_value = st.selectbox(
 integration_time_us = st.number_input(
     "Integration time (us)",
     min_value=100,
-    max_value=750,
+    max_value=10000,
     value=int(st.session_state.integration_time_us),
     step=1,
     format="%d",
@@ -205,7 +205,7 @@ dark_current_target_v = st.number_input(
 dark_current_step = st.number_input(
     "Dark current step (sdcv...,N | 1=slow/precise, 100=fast/coarse)",
     min_value=1,
-    max_value=100,
+    max_value=1000,
     value=int(st.session_state.dark_current_step),
     step=1,
     format="%d",
@@ -289,7 +289,7 @@ if dc_apply_col.button("Apply dark current to device", use_container_width=True,
     live_status = st.empty()
     progress_bar = st.progress(0.0, text="Running dark current routine...")
 
-    start_result = mgr.start_set_dark_current(float(dark_current_target_v), int(dark_current_step), timeout_s=240.0)
+    start_result = mgr.start_set_dark_current(float(dark_current_target_v), int(dark_current_step), timeout_s=10000.0)
     if not start_result.get("ok"):
         progress_bar.progress(0.0, text="Dark current routine failed")
         st.error(start_result.get("error", "Failed to start dark current routine."))

@@ -528,7 +528,7 @@ class SerialManager:
             return {"ok": False, "error": "Not connected."}
 
         integration_us = int(integration_time_us)
-        if integration_us < 100 or integration_us > 750:
+        if integration_us < 100 or integration_us > 10000:
             return {"ok": False, "error": "Integration time must be within 100..750 us."}
 
         with self.lock:
@@ -687,7 +687,7 @@ class SerialManager:
             "target_v": float(self._dark_current_target_v),
         }
 
-    def start_set_dark_current(self, target_v: float, step_value: int, timeout_s: float = 180.0):
+    def start_set_dark_current(self, target_v: float, step_value: int, timeout_s: float = 18000.0):
         if not self.is_connected():
             return {"ok": False, "error": "Not connected."}
         if self.dark_current_active:
@@ -698,7 +698,7 @@ class SerialManager:
             return {"ok": False, "error": "Dark current target voltage must be in range -10.5..0.0 V."}
 
         step = int(step_value)
-        if step < 1 or step > 100:
+        if step < 1 or step > 1000:
             return {"ok": False, "error": "Dark current step must be in range 1..100."}
 
         self.dark_current_active = True
