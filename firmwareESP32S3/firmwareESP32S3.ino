@@ -127,7 +127,8 @@ static const int SERIAL_TIMING_PIN = 21;
 
 // Timing
 static volatile uint32_t integraltimemicros = 700; // default 700 us, can set to 200 us
-static const uint32_t resettimemicros = 10;
+static volatile uint32_t resettimemicros = 10;
+static volatile uint32_t resetHighToHoldLowDelayMicros = 10;
 
 // Device identity (currently hardcoded)
 static const char DEVICE_MODEL[] = "model11.2";
@@ -303,6 +304,7 @@ static void sendErr(uint8_t cmd_id, uint8_t err_code);
 static void sendPcnt32LimitsPacket();
 static void sendStepDelaysPacket();
 static void sendIntegrationTimePacket();
+static void sendResetTimingPacket();
 static void printIntegrationTimeHuman();
 static float detReadAverageAndPrintHuman(uint8_t channel, uint32_t sampleCount, float *averageCountsOut = nullptr, bool printHuman = true);
 
@@ -672,6 +674,14 @@ static void sendIntegrationTimePacket() {
   Serial.write((uint8_t*)&integ, 4);
 }
 
+static void sendResetTimingPacket() {
+  uint32_t resetLowUs = (uint32_t)resettimemicros;
+  uint32_t postResetDelayUs = (uint32_t)resetHighToHoldLowDelayMicros;
+  sendPktHeader(0x26);
+  Serial.write((uint8_t*)&resetLowUs, 4);
+  Serial.write((uint8_t*)&postResetDelayUs, 4);
+}
+
 static void printPcnt32ValuesHuman() {
   int32_t x = pcntRead32(pcX);
   int32_t y = yCoord();
@@ -818,8 +828,50 @@ static void detReadOnce() {
   delayMicroseconds(resettimemicros);
   digitalWrite(RST_PIN, HIGH);
 
-  delayMicroseconds(10);
+  delayMicroseconds(resetHighToHoldLowDelayMicros);
   digitalWrite(HOLD_PIN, LOW);
+}
+
+static void printResetTimingHuman() {
+  Serial.print("Reset LOW time (us): ");
+  Serial.println(resettimemicros);
+  Serial.print("Delay after RST HIGH before HOLD LOW (us): ");
+  Serial.println(resetHighToHoldLowDelayMicros);
+}
+
+// set reset timings: rtime<reset_low_us>,<rst_high_to_hold_low_us>;
+// examples:
+//   rtime10,10;
+//   rtime70,20;
+static bool trySetResetTimingsFromCommand(const char *cmd) {
+  if (strncmp(cmd, "rtime", 5) != 0) {
+    return false;
+  }
+
+  char *end = nullptr;
+  uint32_t resetLowUs = (uint32_t)strtoul(cmd + 5, &end, 10);
+  if (end == cmd + 5 || *end != ',') {
+    sendErr('r', 0x01);
+    return true;
+  }
+
+  char *end2 = nullptr;
+  uint32_t postResetDelayUs = (uint32_t)strtoul(end + 1, &end2, 10);
+  if (end2 == end + 1 || *end2 != 0) {
+    sendErr('r', 0x01);
+    return true;
+  }
+
+  if (resetLowUs < 1 || resetLowUs > 1000 || postResetDelayUs < 1 || postResetDelayUs > 1000) {
+    sendErr('r', 0x02);
+    return true;
+  }
+
+  resettimemicros = resetLowUs;
+  resetHighToHoldLowDelayMicros = postResetDelayUs;
+  sendAck('r');
+  printResetTimingHuman();
+  return true;
 }
 
 static float detCountsToVolts(float counts) {
@@ -1580,6 +1632,12 @@ void loop() {
     return;
   }
 
+  //-----print current reset timings in human-readable text
+  if (strcmp(cmd, "rtime") == 0) {
+    printResetTimingHuman();
+    return;
+  }
+
   //-----pcnt32 axis limits in binary packet
   if (cmd[0] == 'l' && cmd[1] == 0) {
     sendAck('l');
@@ -1601,6 +1659,13 @@ void loop() {
     return;
   }
 
+  //-----reset timings in binary packet
+  if (strcmp(cmd, "rt") == 0) {
+    sendAck('R');
+    sendResetTimingPacket();
+    return;
+  }
+
   //-----set pcnt32 axis limits: lc<xmin>,<xmax>,<ymin>,<ymax>,<zmin>,<zmax>;
   if (trySetPcnt32LimitsFromCommand(cmd)) {
     return;
@@ -1608,6 +1673,11 @@ void loop() {
 
   //-----set step timings: stepdelays<pulse_us>,<gap_us>;
   if (trySetStepDelaysFromCommand(cmd)) {
+    return;
+  }
+
+  //-----set reset timings: rtime<reset_low_us>,<rst_high_to_hold_low_us>;
+  if (trySetResetTimingsFromCommand(cmd)) {
     return;
   }
 

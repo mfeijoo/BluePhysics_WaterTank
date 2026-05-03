@@ -38,7 +38,10 @@ All firmware commands are received over serial and must be terminated with a sem
 |---|---|
 | `i<us>;` | Sets detector integration time in microseconds (clamped internally to 50..50000 µs). |
 | `it;` | Sends current detector integration time as a binary packet (`0x25`) with a `uint32` payload in microseconds. |
+| `rt;` | Sends current reset timings as a binary packet (`0x26`) with two `uint32` fields: reset LOW time and delay after `RST_PIN` HIGH before `HOLD_PIN` LOW (microseconds). |
 | `itime;` | Prints current detector integration time in microseconds in human-readable text. |
+| `rtime;` | Prints detector reset timings: reset LOW duration and delay after `RST_PIN` HIGH before `HOLD_PIN` LOW (both in microseconds). |
+| `rtime<reset_low_us>,<rst_high_to_hold_low_us>;` | Sets detector reset timings in microseconds. Both values must be in range `1..1000`. Example: `rtime70,20;`. |
 | `cint;` | Selects internal capacitor (`CAP_SEL_0` LOW) and prints capacitor state. |
 | `cext;` | Selects external capacitor (`CAP_SEL_0` HIGH) and prints capacitor state. |
 | `cstate;` | Prints current capacitor selection state. |
