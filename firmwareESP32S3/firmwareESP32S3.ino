@@ -530,6 +530,9 @@ static bool det_pulse_target_mode = false;
 static uint32_t det_pulse_target_count = 0;
 static double det_pulse_target_dose = 0.0;
 static bool det_pulse_target_reached = false;
+static bool det_rspt_last_result_valid = false;
+static uint32_t det_rspt_last_pulse_count = 0;
+static double det_rspt_last_accumulated_dose = 0.0;
 static bool det_temp_bytes_streaming = false;
 static uint32_t det_temp_bytes_t0_us = 0;
 static uint32_t det_temp_bytes_last_us = 0;
@@ -1235,6 +1238,20 @@ static void detReadAndCountPulsesWithTargetsStart(
   Serial.println((float)det_pulse_target_dose, 6);
 }
 
+static void printLastRsptResultHuman() {
+  if (!det_rspt_last_result_valid) {
+    Serial.println("No previous rspt run results available.");
+    return;
+  }
+
+  Serial.println("Last rspt run summary:");
+  Serial.print("  Pulses counted on ch0: ");
+  Serial.println(det_rspt_last_pulse_count);
+  Serial.print("  Accumulated dose: ");
+  Serial.print((float)det_rspt_last_accumulated_dose, 6);
+  Serial.println(" (dose units)");
+}
+
 static void detReadAndCountPulsesStopAndPrint() {
   det_pulse_count_streaming = false;
 
@@ -1242,6 +1259,12 @@ static void detReadAndCountPulsesStopAndPrint() {
   sendAck('e');
   sendPktHeader(PKT_STREAM_STOP);
   Serial.write((uint8_t*)&det_pulse_idx, 4);
+
+  if (det_pulse_target_mode) {
+    det_rspt_last_result_valid = true;
+    det_rspt_last_pulse_count = det_pulse_count;
+    det_rspt_last_accumulated_dose = det_pulse_accumulated_dose;
+  }
 
   Serial.print("Pulse counting stopped. Total pulses on ch0: ");
   Serial.println(det_pulse_count);
@@ -2000,6 +2023,12 @@ void loop() {
     }
 
     detReadAndCountPulsesStart(thresholdV, acr, cf);
+    return;
+  }
+
+  //-----print last rspt results in human-readable form
+  if (strcmp(cmd, "rsptlast") == 0) {
+    printLastRsptResultHuman();
     return;
   }
 
