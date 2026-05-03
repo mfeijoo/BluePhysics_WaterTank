@@ -125,6 +125,18 @@ AA 55 25
 - Total packet length: 7 bytes.
 - Returned by `it;` after ACK `AA 55 10 49` (`49` is ASCII `'I'`).
 
+### Type `0x26` RESET TIMINGS
+
+```text
+AA 55 26
+<uint32 reset_low_us><uint32 rst_high_to_hold_low_us>
+```
+
+- Payload: 8 bytes.
+- Total packet length: 11 bytes.
+- All numeric fields are little-endian.
+- Returned by `rt;` after ACK `AA 55 10 52` (`52` is ASCII `'R'`).
+
 ---
 
 ## 3) Detector measurement packet (`m...`)
